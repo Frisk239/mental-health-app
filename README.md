@@ -41,10 +41,24 @@
 
 ```bash
 # 安装Node.js 18+ 和 Python 3.9+
-# 启动PostgreSQL和Redis服务
+# 克隆项目
+git clone https://github.com/Frisk239/mental-health-app.git
+cd mental-health-app
 ```
 
-### 2. 安装依赖
+### 2. 配置环境变量
+
+```bash
+# 复制环境变量模板
+cp .env.example .env
+
+# 编辑 .env 文件，配置以下必需项：
+# - DEEPSEEK_API_KEY: 从 https://platform.deepseek.com/ 获取
+# - DATABASE_URL: 默认使用SQLite，无需修改
+# - 其他配置可保持默认值
+```
+
+### 3. 安装依赖
 
 ```bash
 # 前端依赖
@@ -58,12 +72,12 @@ conda activate mental-health
 pip install -r requirements.txt
 ```
 
-### 3. 配置环境变量
+### 4. 初始化数据库
 
 ```bash
-# 复制并修改环境变量
-cp .env.example .env
-# 编辑数据库连接等配置
+# 初始化SQLite数据库
+cd backend
+python scripts/init_db.py
 ```
 
 ### 4. 启动服务
