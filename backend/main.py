@@ -1,6 +1,20 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import emotion, farm, social, history, debug, emotion_ws
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+
+# Set specific loggers to INFO level
+logging.getLogger('app.services.emotion_recognition').setLevel(logging.INFO)
+logging.getLogger('app.routes.emotion_ws').setLevel(logging.INFO)
 
 # Create FastAPI app
 app = FastAPI(

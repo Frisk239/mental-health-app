@@ -259,11 +259,11 @@ export class VideoStreamService {
 
             // 继续下一帧（如果还在捕获）
             if (this.isCapturing) {
-              this.captureTimeout = setTimeout(captureFrame, 200) // 5 FPS
+              this.captureTimeout = setTimeout(captureFrame, 1000) // 1 FPS - 适合表情识别的实时性
             }
           } else if (this.isCapturing) {
             // 如果blob为空但还在捕获，继续下一帧
-            this.captureTimeout = setTimeout(captureFrame, 200)
+            this.captureTimeout = setTimeout(captureFrame, 1000)
           }
         }, 'image/jpeg', 0.8) // 80%质量
 
@@ -271,7 +271,7 @@ export class VideoStreamService {
         console.error('❌ 帧捕获失败:', error)
         // 出错时也继续捕获（如果还在运行）
         if (this.isCapturing) {
-          this.captureTimeout = setTimeout(captureFrame, 200)
+          this.captureTimeout = setTimeout(captureFrame, 1000)
         }
       }
     }
