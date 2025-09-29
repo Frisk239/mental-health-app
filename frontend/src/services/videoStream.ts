@@ -29,6 +29,8 @@ export class VideoStreamService {
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
   private reconnectInterval: NodeJS.Timeout | null = null
+  private isCapturing = false
+  private captureTimeout: NodeJS.Timeout | null = null
 
   // 回调函数
   private onEmotionResult?: (result: EmotionResult) => void
@@ -232,9 +234,12 @@ export class VideoStreamService {
     }
 
     console.log('📹 开始捕获视频帧...')
+    this.isCapturing = true
 
     const captureFrame = async () => {
-      if (!this.video || !this.websocket || !this.wsConnected) {
+      // 检查是否应该停止捕获
+      if (!this.isCapturing || !this.video || !this.websocket || !this.wsConnected) {
+        console.log('🛑 停止视频帧捕获')
         return
       }
 
@@ -244,7 +249,7 @@ export class VideoStreamService {
 
         // 转换为JPEG格式
         this.canvas.toBlob(async (blob) => {
-          if (blob && this.websocket && this.wsConnected) {
+          if (blob && this.websocket && this.wsConnected && this.isCapturing) {
             // 转换为字节数组
             const arrayBuffer = await blob.arrayBuffer()
             const uint8Array = new Uint8Array(arrayBuffer)
@@ -252,13 +257,22 @@ export class VideoStreamService {
             // 发送到后端
             this.websocket.send(uint8Array)
 
-            // 继续下一帧
-            setTimeout(captureFrame, 200) // 5 FPS
+            // 继续下一帧（如果还在捕获）
+            if (this.isCapturing) {
+              this.captureTimeout = setTimeout(captureFrame, 200) // 5 FPS
+            }
+          } else if (this.isCapturing) {
+            // 如果blob为空但还在捕获，继续下一帧
+            this.captureTimeout = setTimeout(captureFrame, 200)
           }
         }, 'image/jpeg', 0.8) // 80%质量
 
       } catch (error) {
         console.error('❌ 帧捕获失败:', error)
+        // 出错时也继续捕获（如果还在运行）
+        if (this.isCapturing) {
+          this.captureTimeout = setTimeout(captureFrame, 200)
+        }
       }
     }
 
@@ -271,6 +285,13 @@ export class VideoStreamService {
    */
   stopEmotionDetection() {
     console.log('🛑 停止表情识别')
+
+    // 停止帧捕获
+    this.isCapturing = false
+    if (this.captureTimeout) {
+      clearTimeout(this.captureTimeout)
+      this.captureTimeout = null
+    }
 
     // 停止重连定时器
     if (this.reconnectInterval) {

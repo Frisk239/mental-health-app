@@ -5,6 +5,8 @@ export interface EmotionData {
   angry: number
   surprised: number
   neutral: number
+  disgust: number
+  fear: number
   timestamp: Date
 }
 

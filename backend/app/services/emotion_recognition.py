@@ -150,7 +150,15 @@ class EmotionRecognitionService:
             )
 
             logger.info(f"📊 检测到 {len(faces)} 个人脸")
-            return faces.tolist()
+
+            # 确保 faces 是正确的类型再转换
+            if hasattr(faces, 'tolist'):
+                return faces.tolist()
+            elif isinstance(faces, (list, tuple)):
+                return list(faces)
+            else:
+                logger.warning(f"⚠️ 意外的面部检测结果类型: {type(faces)}")
+                return []
 
         except Exception as e:
             logger.error(f"❌ 面部检测失败: {e}")
@@ -228,18 +236,21 @@ class EmotionRecognitionService:
             emotion_chinese = self.emotion_labels_chinese[emotion_english]
             confidence = probabilities[predicted_class].item()
 
+            probabilities_dict = {
+                label: prob.item()
+                for label, prob in zip(self.emotion_labels.values(), probabilities)
+            }
+
             result = {
                 "emotion": emotion_english,
                 "emotion_chinese": emotion_chinese,
                 "confidence": confidence,
-                "probabilities": {
-                    label: prob.item()
-                    for label, prob in zip(self.emotion_labels.values(), probabilities)
-                },
+                "probabilities": probabilities_dict,
                 "timestamp": random.randint(1000000, 9999999)
             }
 
             logger.info(f"😊 表情识别结果: {emotion_chinese} ({confidence:.3f})")
+            logger.info(f"📊 详细概率: {probabilities_dict}")
             return result
 
         except Exception as e:
@@ -280,6 +291,8 @@ class EmotionRecognitionService:
             Dict: 表情识别结果
         """
         try:
+            logger.info(f"📹 开始处理视频帧，大小: {len(frame_data)} bytes")
+
             # 解码图像
             nparr = np.frombuffer(frame_data, np.uint8)
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -287,6 +300,8 @@ class EmotionRecognitionService:
             if frame is None:
                 logger.error("❌ 图像解码失败")
                 return self._get_default_result()
+
+            logger.info(f"✅ 图像解码成功，尺寸: {frame.shape}")
 
             # 检测面部
             faces = self.detect_faces(frame)
@@ -301,9 +316,13 @@ class EmotionRecognitionService:
                     "timestamp": random.randint(1000000, 9999999)
                 }
 
+            logger.info(f"🎯 检测到 {len(faces)} 个人脸，开始处理第一个")
+
             # 处理第一个检测到的人脸
             x, y, w, h = faces[0]
             face_img = frame[y:y+h, x:x+w]
+
+            logger.info(f"✂️ 裁剪面部区域: x={x}, y={y}, w={w}, h={h}")
 
             # 预处理面部图像
             processed_face = self.preprocess_face(face_img)
@@ -315,10 +334,13 @@ class EmotionRecognitionService:
             result["face_box"] = {"x": int(x), "y": int(y), "width": int(w), "height": int(h)}
             result["faces_count"] = len(faces)
 
+            logger.info(f"🎉 帧处理完成，返回结果: {result.get('emotion_chinese', '未知')}")
             return result
 
         except Exception as e:
             logger.error(f"❌ 帧处理失败: {e}")
+            import traceback
+            traceback.print_exc()
             return self._get_default_result()
 
     def get_model_info(self) -> Dict:

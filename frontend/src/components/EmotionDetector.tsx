@@ -29,13 +29,15 @@ const EmotionDetector: React.FC<EmotionDetectorProps> = ({ onEmotionDetected, is
 
     // 转换格式以适配现有的EmotionData类型
     // 后端返回: anger, disgust, fear, happy, neutral, sad, surprise
-    // 前端需要: happy, sad, angry, surprised, neutral
+    // 前端显示: happy, sad, angry, surprised, neutral, disgust, fear
     const emotionData: EmotionData = {
       happy: result.probabilities.happy || 0,
       sad: result.probabilities.sad || 0,
       angry: result.probabilities.anger || 0,  // 后端用 anger，前端用 angry
       surprised: result.probabilities.surprise || 0,  // 后端用 surprise，前端用 surprised
       neutral: result.probabilities.neutral || 0,
+      disgust: result.probabilities.disgust || 0,  // 厌恶
+      fear: result.probabilities.fear || 0,  // 恐惧
       timestamp: new Date()
     }
 
@@ -122,7 +124,9 @@ const EmotionDetector: React.FC<EmotionDetectorProps> = ({ onEmotionDetected, is
       sad: '悲伤',
       angry: '愤怒',
       surprised: '惊讶',
-      neutral: '平静'
+      neutral: '平静',
+      disgust: '厌恶',
+      fear: '恐惧'
     }
     return labels[emotion] || emotion
   }
@@ -133,7 +137,9 @@ const EmotionDetector: React.FC<EmotionDetectorProps> = ({ onEmotionDetected, is
       sad: 'text-blue-600',
       angry: 'text-red-600',
       surprised: 'text-purple-600',
-      neutral: 'text-gray-600'
+      neutral: 'text-gray-600',
+      disgust: 'text-yellow-600',
+      fear: 'text-orange-600'
     }
     return colors[emotion] || 'text-gray-600'
   }
@@ -268,7 +274,7 @@ const EmotionDetector: React.FC<EmotionDetectorProps> = ({ onEmotionDetected, is
           <li>• 确保光线充足，面部清晰可见</li>
           <li>• 保持自然表情，系统会实时分析</li>
           <li>• 检测结果每3秒更新一次</li>
-          <li>• 支持的表情: 开心、悲伤、愤怒、惊讶、平静</li>
+          <li>• 支持的表情: 开心、悲伤、愤怒、惊讶、平静、厌恶、恐惧</li>
         </ul>
       </div>
     </div>
