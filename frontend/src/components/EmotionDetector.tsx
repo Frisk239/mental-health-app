@@ -2,7 +2,10 @@ import React, { useRef, useEffect, useState, useCallback } from 'react'
 import Webcam from 'react-webcam'
 import { Camera, CameraOff, RefreshCw, AlertCircle } from 'lucide-react'
 import { EmotionData } from '../types'
-import { faceRecognitionService, FaceEmotionResult } from '../services/faceRecognition'
+import { videoStreamService, EmotionResult } from '../services'
+
+// 基础调试输出
+console.log('🔍 EmotionDetector组件文件被加载')
 
 interface EmotionDetectorProps {
   onEmotionDetected: (emotions: EmotionData) => void
@@ -10,149 +13,101 @@ interface EmotionDetectorProps {
 }
 
 const EmotionDetector: React.FC<EmotionDetectorProps> = ({ onEmotionDetected, isActive }) => {
+  console.log('🎬 EmotionDetector组件函数被调用', { isActive })
+
   const webcamRef = useRef<Webcam>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isWebcamReady, setIsWebcamReady] = useState(false)
   const [isDetecting, setIsDetecting] = useState(false)
   const [currentEmotions, setCurrentEmotions] = useState<EmotionData | null>(null)
-  const [isModelLoading, setIsModelLoading] = useState(false)
-  const [isModelReady, setIsModelReady] = useState(false)
+  const [isConnected, setIsConnected] = useState(false)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
 
-  // 真正的面部表情检测
-  const detectEmotions = useCallback(async () => {
-    console.log('🎯 开始表情检测流程')
-    console.log('📊 当前状态:', {
-      isActive,
-      isWebcamReady,
-      hasVideo: !!webcamRef.current?.video,
-      modelInitialized: faceRecognitionService['isInitialized']
-    })
+  // 处理表情识别结果
+  const handleEmotionResult = useCallback((result: EmotionResult) => {
+    console.log('📊 接收到表情识别结果:', result)
 
-    if (!isActive || !isWebcamReady || !webcamRef.current?.video) {
-      console.log('❌ 检测条件不满足，跳过检测')
-      return
+    // 转换格式以适配现有的EmotionData类型
+    // 后端返回: anger, disgust, fear, happy, neutral, sad, surprise
+    // 前端需要: happy, sad, angry, surprised, neutral
+    const emotionData: EmotionData = {
+      happy: result.probabilities.happy || 0,
+      sad: result.probabilities.sad || 0,
+      angry: result.probabilities.anger || 0,  // 后端用 anger，前端用 angry
+      surprised: result.probabilities.surprise || 0,  // 后端用 surprise，前端用 surprised
+      neutral: result.probabilities.neutral || 0,
+      timestamp: new Date()
     }
+
+    setCurrentEmotions(emotionData)
+    onEmotionDetected(emotionData)
+  }, [onEmotionDetected])
+
+  // 处理连接状态变化
+  const handleConnectionChange = useCallback((connected: boolean) => {
+    console.log('🔗 连接状态变化:', connected)
+    setIsConnected(connected)
+    if (!connected) {
+      setConnectionError('后端服务连接失败')
+    } else {
+      setConnectionError(null)
+    }
+  }, [])
+
+  // 处理连接错误
+  const handleError = useCallback((error: string) => {
+    console.error('❌ 表情识别错误:', error)
+    setConnectionError(error)
+  }, [])
+
+  // 启动表情识别
+  const startEmotionDetection = useCallback(async () => {
+    console.log('🚀 启动表情识别服务')
 
     setIsDetecting(true)
-    console.log('🔄 开始检测，设置检测状态为true')
+    setConnectionError(null)
 
     try {
-      // 确保模型已初始化
-      if (!faceRecognitionService['isInitialized']) {
-        console.log('🔧 模型未初始化，开始初始化...')
-        await faceRecognitionService.initialize()
-        console.log('✅ 模型初始化完成')
-      } else {
-        console.log('✅ 模型已初始化')
+      const success = await videoStreamService.startEmotionDetection(
+        handleEmotionResult,
+        handleConnectionChange,
+        handleError
+      )
+
+      if (!success) {
+        setConnectionError('启动表情识别失败')
+        setIsDetecting(false)
       }
-
-      const video = webcamRef.current.video
-      console.log('📹 视频元素状态:', {
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight,
-        readyState: video.readyState,
-        paused: video.paused
-      })
-
-      // 分析面部表情
-      console.log('🧠 开始分析面部表情...')
-      const result: FaceEmotionResult | null = await faceRecognitionService.analyzeEmotion(video)
-
-      if (result) {
-        console.log('📊 检测到面部表情结果:', result)
-
-        // 验证结果是否有效
-        const emotionValues = [result.happy, result.sad, result.angry, result.surprised, result.neutral]
-        const isValidResult = emotionValues.every(val =>
-          typeof val === 'number' && !isNaN(val) && val >= 0 && val <= 1
-        )
-
-        console.log('🔍 结果验证:', {
-          emotionValues,
-          isValidResult,
-          sum: emotionValues.reduce((a, b) => a + b, 0)
-        })
-
-        if (isValidResult) {
-          // 转换格式
-          const emotionData: EmotionData = {
-            happy: result.happy,
-            sad: result.sad,
-            angry: result.angry,
-            surprised: result.surprised,
-            neutral: result.neutral,
-            timestamp: result.timestamp
-          }
-
-          setCurrentEmotions(emotionData)
-          onEmotionDetected(emotionData)
-          console.log('✅ 表情检测成功，更新UI:', emotionData)
-        } else {
-          console.warn('⚠️ 表情检测结果无效，使用默认值')
-          const defaultEmotions: EmotionData = {
-            happy: 0.2,
-            sad: 0.2,
-            angry: 0.2,
-            surprised: 0.2,
-            neutral: 0.2,
-            timestamp: new Date()
-          }
-          setCurrentEmotions(defaultEmotions)
-          onEmotionDetected(defaultEmotions)
-        }
-      } else {
-        console.log('👤 未检测到面部，请确保面部在摄像头视野内')
-        // 显示提示信息但不更新情绪数据
-        setCurrentEmotions(prev => prev ? prev : {
-          happy: 0.2,
-          sad: 0.2,
-          angry: 0.2,
-          surprised: 0.2,
-          neutral: 0.2,
-          timestamp: new Date()
-        })
-      }
-
     } catch (error: any) {
-      console.error('❌ 情绪检测失败:', error)
-      console.error('🔍 错误详情:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      })
-
-      // 显示用户友好的错误信息
-      setCurrentEmotions({
-        happy: 0.2,
-        sad: 0.2,
-        angry: 0.2,
-        surprised: 0.2,
-        neutral: 0.2,
-        timestamp: new Date()
-      })
-
-      // 如果是初始化错误，尝试重新初始化
-      if (error?.message?.includes('未初始化') || error?.message?.includes('initialized')) {
-        try {
-          console.log('🔄 尝试重新初始化面部识别模型...')
-          await faceRecognitionService.initialize()
-          console.log('✅ 面部识别模型重新初始化完成')
-        } catch (initError: any) {
-          console.error('❌ 模型重新初始化失败:', initError)
-        }
-      }
-    } finally {
+      console.error('❌ 启动表情识别失败:', error)
+      setConnectionError(error.message || '启动失败')
       setIsDetecting(false)
-      console.log('🏁 检测流程结束，重置检测状态')
     }
-  }, [isActive, isWebcamReady, onEmotionDetected])
+  }, [handleEmotionResult, handleConnectionChange, handleError])
 
+  // 停止表情识别
+  const stopEmotionDetection = useCallback(() => {
+    console.log('🛑 停止表情识别服务')
+    videoStreamService.stopEmotionDetection()
+    setIsDetecting(false)
+    setConnectionError(null)
+  }, [])
+
+  // 组件加载时初始化
   useEffect(() => {
-    if (isActive && isWebcamReady) {
-      const interval = setInterval(detectEmotions, 3000) // 每3秒检测一次
-      return () => clearInterval(interval)
+    console.log('🔧 EmotionDetector组件初始化')
+  }, [])
+
+  // 响应isActive状态变化
+  useEffect(() => {
+    console.log('🔄 检测状态变化:', { isActive, isConnected })
+
+    if (isActive && !isDetecting) {
+      startEmotionDetection()
+    } else if (!isActive && isDetecting) {
+      stopEmotionDetection()
     }
-  }, [isActive, isWebcamReady])
+  }, [isActive, isDetecting, startEmotionDetection, stopEmotionDetection])
 
   const getPrimaryEmotion = (emotions: EmotionData): string => {
     const emotionEntries = Object.entries(emotions).filter(([key]) => key !== 'timestamp')
@@ -185,8 +140,8 @@ const EmotionDetector: React.FC<EmotionDetectorProps> = ({ onEmotionDetected, is
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
           实时情绪监测
         </h2>
         <div className="flex items-center space-x-2">
@@ -194,7 +149,9 @@ const EmotionDetector: React.FC<EmotionDetectorProps> = ({ onEmotionDetected, is
             <RefreshCw className="w-5 h-5 animate-spin text-blue-600" />
           )}
           <div className="text-sm text-gray-600 dark:text-gray-300">
-            {isActive ? '检测中...' : '等待开始'}
+            状态: {isActive ? '检测中...' : '等待开始'} |
+            摄像头: {isWebcamReady ? '就绪' : '未就绪'} |
+            连接: {isConnected ? '已连接' : '未连接'}
           </div>
         </div>
       </div>

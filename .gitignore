@@ -129,6 +129,7 @@ temp/
 # AI Models (if any)
 models/
 checkpoints/
+Facial-Emotion-Detection-FER-RAFDB-AffectNet-BEIT-Large/
 
 # Secrets and keys
 secrets/
