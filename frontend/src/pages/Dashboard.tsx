@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { Heart, Camera, Mic, Sprout, Users, History, Settings, Sun, Moon } from 'lucide-react'
+import { Heart, Camera, Mic, Users, Settings, Sun, Moon } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 
 const Dashboard: React.FC = () => {
@@ -22,25 +22,11 @@ const Dashboard: React.FC = () => {
       color: 'bg-red-500'
     },
     {
-      icon: <Sprout className="w-8 h-8" />,
-      title: '情绪农场',
-      description: '游戏化情绪调节',
-      path: '/farm',
-      color: 'bg-green-500'
-    },
-    {
       icon: <Users className="w-8 h-8" />,
       title: '社交实验室',
       description: 'AI陪伴社交练习',
       path: '/social',
       color: 'bg-purple-500'
-    },
-    {
-      icon: <History className="w-8 h-8" />,
-      title: '历史记录',
-      description: '查看情绪变化趋势',
-      path: '/history',
-      color: 'bg-orange-500'
     }
   ]
 
@@ -87,7 +73,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* Features Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
           {features.map((feature, index) => (
             <Link
               key={index}
@@ -107,27 +93,6 @@ const Dashboard: React.FC = () => {
               </div>
             </Link>
           ))}
-        </div>
-
-        {/* Quick Stats */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700">
-          <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
-            本周概览
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-blue-600 mb-2">7</div>
-              <div className="text-gray-600 dark:text-gray-300">情绪记录</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-green-600 mb-2">85%</div>
-              <div className="text-gray-600 dark:text-gray-300">积极情绪</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-purple-600 mb-2">3</div>
-              <div className="text-gray-600 dark:text-gray-300">农场作物</div>
-            </div>
-          </div>
         </div>
       </main>
     </div>
