@@ -26,6 +26,9 @@ librosa==0.10.1
 # Audio Processing
 soundfile==0.12.1
 pyaudio==0.2.13
+datasets==2.15.0  # 用于加载Hugging Face数据集
+accelerate==0.24.1  # 用于模型加速
+tokenizers==0.15.0  # 分词器
 
 # WebSocket
 websockets==12.0

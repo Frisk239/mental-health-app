@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { Heart, Camera, Sprout, Users, History, Settings, Sun, Moon } from 'lucide-react'
+import { Heart, Camera, Mic, Sprout, Users, History, Settings, Sun, Moon } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 
 const Dashboard: React.FC = () => {
@@ -9,10 +9,17 @@ const Dashboard: React.FC = () => {
   const features = [
     {
       icon: <Camera className="w-8 h-8" />,
-      title: '情绪监测',
-      description: '多模态实时情绪识别',
+      title: '面部表情分析',
+      description: '实时摄像头分析情绪状态',
       path: '/detect',
       color: 'bg-blue-500'
+    },
+    {
+      icon: <Mic className="w-8 h-8" />,
+      title: '语音情绪检测',
+      description: '通过语音分析情绪状态',
+      path: '/speech-detect',
+      color: 'bg-red-500'
     },
     {
       icon: <Sprout className="w-8 h-8" />,
@@ -80,7 +87,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* Features Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-12">
           {features.map((feature, index) => (
             <Link
               key={index}

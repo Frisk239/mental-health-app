@@ -92,3 +92,30 @@ export interface LabSession {
   feedback: string[]
   emotions: EmotionData[]
 }
+
+// 语音情绪识别类型
+export interface SpeechEmotionResult {
+  emotion: string
+  emotion_chinese: string
+  confidence: number
+  probabilities: Record<string, number>
+  timestamp: number
+}
+
+export interface SpeechEmotionData {
+  happy: number
+  sad: number
+  angry: number
+  surprised: number
+  neutral: number
+  disgust: number
+  fearful: number
+  timestamp: Date
+}
+
+export interface AudioRecordingState {
+  isRecording: boolean
+  duration: number
+  audioData: Blob | null
+  emotionResult: SpeechEmotionData | null
+}

@@ -130,6 +130,7 @@ temp/
 models/
 checkpoints/
 Facial-Emotion-Detection-FER-RAFDB-AffectNet-BEIT-Large/
+openai-whisper-large-v3/
 
 # Secrets and keys
 secrets/
