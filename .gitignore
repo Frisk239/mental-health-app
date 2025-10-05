@@ -131,6 +131,8 @@ models/
 checkpoints/
 Facial-Emotion-Detection-FER-RAFDB-AffectNet-BEIT-Large/
 openai-whisper-large-v3/
+GPT_weights_v2Pro/
+SoVITS_weights_v2Pro/
 
 # Secrets and keys
 secrets/

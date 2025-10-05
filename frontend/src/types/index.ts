@@ -119,3 +119,73 @@ export interface AudioRecordingState {
   audioData: Blob | null
   emotionResult: SpeechEmotionData | null
 }
+
+// 社交实验室类型
+export interface SocialLabScenario {
+  id: string
+  name: string
+  description: string
+  difficulty: 'easy' | 'medium' | 'hard'
+  category: string
+  unlocked_by: string | null
+  ai_role: string
+  script: {
+    opening?: string
+    questions?: string[]
+    closing?: string
+    interruptions?: string[]
+    topics?: string[]
+  }
+  is_unlocked: boolean
+  created_at: string
+}
+
+export interface PracticeSession {
+  session_id: number
+  scenario: SocialLabScenario
+  script: any
+  start_time: string
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  message: string
+  timestamp: string
+  voice_emotions?: SpeechEmotionData
+  face_emotions?: EmotionData
+}
+
+export interface SessionFeedback {
+  score: number
+  feedback: string
+  suggestions: string
+  encouragement: string
+}
+
+export interface UserProgress {
+  total_sessions: number
+  average_score: number
+  achievements: Achievement[]
+}
+
+export interface Achievement {
+  id: string
+  name: string
+  description: string
+  icon: string
+  requirement: string
+  reward_type: string
+  reward_value: string
+  unlocked_at?: string
+}
+
+export interface SocialLabStats {
+  total_users: number
+  total_sessions: number
+  average_score: number
+  scenario_stats: Array<{
+    name: string
+    count: number
+  }>
+  active_sessions: number
+}

@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import emotion, social, debug, emotion_ws, speech_emotion
+from app.routes import emotion, social, debug, emotion_ws, speech_emotion, social_lab, voice_service
 
 # Configure logging
 logging.basicConfig(
@@ -38,6 +38,8 @@ app.include_router(social.router, prefix="/api/social", tags=["social"])
 app.include_router(debug.router, tags=["debug"])
 app.include_router(emotion_ws.router, prefix="/api/emotion", tags=["emotion_ws"])
 app.include_router(speech_emotion.router, prefix="/api/speech-emotion", tags=["speech_emotion"])
+app.include_router(social_lab.router, prefix="/api/social-lab", tags=["social_lab"])
+app.include_router(voice_service.router, prefix="/api/voice", tags=["voice"])
 
 @app.get("/")
 async def root():

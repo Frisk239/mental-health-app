@@ -41,6 +41,7 @@ python-decouple==3.8
 # HTTP Client
 httpx==0.25.2
 aiofiles==23.2.1
+aiohttp==3.9.1
 
 # Development
 pytest==7.4.3
