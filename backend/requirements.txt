@@ -11,7 +11,7 @@ alembic==1.12.1
 # Cache
 redis==5.0.1
 
-# AI/ML - Facial Emotion Recognition
+# AI/ML - Facial Emotion Recognition & Voice Synthesis
 torch==2.1.0
 torchvision==0.16.0
 torchaudio==2.1.0
@@ -28,7 +28,18 @@ soundfile==0.12.1
 pyaudio==0.2.13
 datasets==2.15.0  # 用于加载Hugging Face数据集
 accelerate==0.24.1  # 用于模型加速
-tokenizers==0.15.0  # 分词器
+tokenizers>=0.14.0,<0.15  # 分词器
+
+# GPT-SoVITS Dependencies
+ffmpeg-python==0.2.0
+tqdm==4.66.1
+pyyaml==6.0.1
+peft==0.7.1  # Parameter-Efficient Fine-Tuning
+sentencepiece==0.1.99
+protobuf==4.25.0
+scipy==1.11.4
+matplotlib==3.8.2
+einops==0.7.0
 
 # WebSocket
 websockets==12.0

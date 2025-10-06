@@ -134,6 +134,10 @@ openai-whisper-large-v3/
 GPT_weights_v2Pro/
 SoVITS_weights_v2Pro/
 
+# GPT-SoVITS related
+GPT_SoVITS/
+GPT-Sovits-slice/
+
 # Secrets and keys
 secrets/
 keys/

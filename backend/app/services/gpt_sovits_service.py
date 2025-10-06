@@ -1,6 +1,6 @@
 """
 GPT-SoVITS推理服务
-基于你的项目源码实现语音合成
+基于GPT-SoVITS-v2pro源码完全集成
 """
 
 import json
@@ -8,11 +8,155 @@ import logging
 import os
 import sys
 import asyncio
-from typing import Dict, List, Optional, Any
+import gc
+import math
+import random
+import time
+import traceback
+from copy import deepcopy
+from typing import Dict, List, Optional, Any, Tuple, Union, Generator
+
 import torch
+import torch.nn.functional as F
 import numpy as np
+import torchaudio
+from tqdm import tqdm
+import ffmpeg
+import librosa
+import soundfile as sf
+import yaml
+from transformers import AutoModelForMaskedLM, AutoTokenizer
+
+# 导入GPT-SoVITS核心模块
+from GPT_SoVITS.AR.models.t2s_lightning_module import Text2SemanticLightningModule
+from GPT_SoVITS.BigVGAN.bigvgan import BigVGAN
+from GPT_SoVITS.feature_extractor.cnhubert import CNHubert
+from GPT_SoVITS.module.mel_processing import mel_spectrogram_torch, spectrogram_torch
+from GPT_SoVITS.module.models import SynthesizerTrn, SynthesizerTrnV3, Generator
+from peft import LoraConfig, get_peft_model
+from GPT_SoVITS.process_ckpt import get_sovits_version_from_path_fast, load_sovits_new
+from GPT_SoVITS.tools.audio_sr import AP_BWE
+from GPT_SoVITS.tools.i18n.i18n import I18nAuto, scan_language_list
+from GPT_SoVITS.TTS_infer_pack.text_segmentation_method import splits
+from GPT_SoVITS.TTS_infer_pack.TextPreprocessor import TextPreprocessor
+from GPT_SoVITS.sv import SV
 
 logger = logging.getLogger(__name__)
+
+# 音频重采样缓存
+resample_transform_dict = {}
+
+def resample(audio_tensor, sr0, sr1, device):
+    global resample_transform_dict
+    key = "%s-%s-%s" % (sr0, sr1, str(device))
+    if key not in resample_transform_dict:
+        resample_transform_dict[key] = torchaudio.transforms.Resample(sr0, sr1).to(device)
+    return resample_transform_dict[key](audio_tensor)
+
+# 语言设置
+language = os.environ.get("language", "Auto")
+language = sys.argv[-1] if sys.argv[-1] in scan_language_list() else language
+i18n = I18nAuto(language=language)
+
+# 频谱归一化参数
+spec_min = -12
+spec_max = 2
+
+def norm_spec(x):
+    return (x - spec_min) / (spec_max - spec_min) * 2 - 1
+
+def denorm_spec(x):
+    return (x + 1) / 2 * (spec_max - spec_min) + spec_min
+
+# 梅尔频谱函数
+mel_fn = lambda x: mel_spectrogram_torch(
+    x,
+    **{
+        "n_fft": 1024,
+        "win_size": 1024,
+        "hop_size": 256,
+        "num_mels": 100,
+        "sampling_rate": 24000,
+        "fmin": 0,
+        "fmax": None,
+        "center": False,
+    },
+)
+
+mel_fn_v4 = lambda x: mel_spectrogram_torch(
+    x,
+    **{
+        "n_fft": 1280,
+        "win_size": 1280,
+        "hop_size": 320,
+        "num_mels": 100,
+        "sampling_rate": 32000,
+        "fmin": 0,
+        "fmax": None,
+        "center": False,
+    },
+)
+
+def speed_change(input_audio: np.ndarray, speed: float, sr: int):
+    """变速处理音频"""
+    raw_audio = input_audio.astype(np.int16).tobytes()
+    input_stream = ffmpeg.input("pipe:", format="s16le", acodec="pcm_s16le", ar=str(sr), ac=1)
+    output_stream = input_stream.filter("atempo", speed)
+    out, _ = output_stream.output("pipe:", format="s16le", acodec="pcm_s16le").run(
+        input=raw_audio, capture_stdout=True, capture_stderr=True
+    )
+    processed_audio = np.frombuffer(out, np.int16)
+    return processed_audio
+
+def set_seed(seed: int):
+    """设置随机种子"""
+    seed = int(seed)
+    seed = seed if seed != -1 else random.randint(0, 2**32 - 1)
+    print(f"Set seed to {seed}")
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
+    except:
+        pass
+    return seed
+
+class DictToAttrRecursive(dict):
+    """字典转属性递归类"""
+    def __init__(self, input_dict):
+        super().__init__(input_dict)
+        for key, value in input_dict.items():
+            if isinstance(value, dict):
+                value = DictToAttrRecursive(value)
+            self[key] = value
+            setattr(self, key, value)
+
+    def __getattr__(self, item):
+        try:
+            return self[item]
+        except KeyError:
+            raise AttributeError(f"Attribute {item} not found")
+
+    def __setattr__(self, key, value):
+        if isinstance(value, dict):
+            value = DictToAttrRecursive(value)
+        super(DictToAttrRecursive, self).__setitem__(key, value)
+        super().__setattr__(key, value)
+
+    def __delattr__(self, item):
+        try:
+            del self[item]
+        except KeyError:
+            raise AttributeError(f"Attribute {item} not found")
+
+class NO_PROMPT_ERROR(Exception):
+    pass
 
 class GPTSoVITSService:
     """GPT-SoVITS推理服务"""
@@ -22,11 +166,8 @@ class GPTSoVITSService:
         self.config = self._load_config()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # 模型组件
-        self.text_encoder = None
-        self.synthesizer = None
-        self.vocoder = None
-        self.ssl_model = None
+        # GPT-SoVITS TTS实例
+        self.tts_pipeline = None
 
         # 模型路径（使用绝对路径）
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +176,20 @@ class GPTSoVITSService:
 
         # 模型缓存
         self.models_cache = {}
+
+        # 初始化TTS管道
+        self._init_tts_pipeline()
+
+    def _init_tts_pipeline(self):
+        """初始化TTS管道"""
+        try:
+            logger.info("🎵 初始化GPT-SoVITS TTS管道...")
+            # TTS管道将在第一次推理时动态创建
+            self.tts_pipeline = None
+            logger.info("✅ TTS管道初始化完成（延迟加载）")
+        except Exception as e:
+            logger.error(f"❌ TTS管道初始化失败: {e}")
+            self.tts_pipeline = None
 
     def _load_config(self) -> Dict:
         """加载配置文件"""
@@ -279,57 +434,120 @@ class GPTSoVITSService:
         voice_params: Dict
     ) -> bytes:
         """
-        执行推理（基于你的源码）
+        执行GPT-SoVITS推理
 
-        这里需要集成你的GPT-SoVITS源码逻辑
+        基于GPT-SoVITS源码的完整推理流程
         """
         try:
-            # TODO: 集成你的GPT-SoVITS源码
-            # 以下是基于源码的伪代码实现框架
+            logger.info("🎯 开始GPT-SoVITS推理流程...")
 
-            # 1. 加载模型权重
-            # gpt_dict = torch.load(gpt_path, map_location="cpu")
-            # sovits_dict = torch.load(sovits_path, map_location="cpu")
+            # 1. 创建TTS配置
+            tts_config = self._create_tts_config(gpt_path, sovits_path)
+            logger.info("✅ TTS配置创建完成")
 
-            # 2. 初始化模型（基于你的源码）
-            # text_encoder = TextEncoder(...)
-            # synthesizer = SynthesizerTrn(...)
-            # vocoder = ...
+            # 2. 初始化TTS管道
+            from GPT_SoVITS.TTS_infer_pack.TTS import TTS
+            tts_pipeline = TTS(tts_config)
+            logger.info("✅ TTS管道初始化完成")
 
-            # 3. 文本预处理
-            # phones, bert_features = preprocess_text(text)
+            # 3. 获取角色配置
+            role_config = self._get_role_config_by_model(gpt_path, sovits_path)
+            if not role_config:
+                logger.error("❌ 未找到角色配置")
+                return b""
 
-            # 4. 语义编码
-            # semantic_tokens = text_encoder.encode(...)
+            # 4. 获取参考音频路径
+            ref_audio_path = role_config.get("ref_audio_path")
+            if not ref_audio_path or not os.path.exists(ref_audio_path):
+                logger.error(f"❌ 参考音频不存在: {ref_audio_path}")
+                return b""
 
-            # 5. 音频生成
-            # audio_features = synthesizer.generate(...)
+            # 5. 设置参考音频
+            tts_pipeline.set_ref_audio(ref_audio_path)
+            logger.info(f"✅ 参考音频设置完成: {ref_audio_path}")
 
-            # 6. 声码器转换
-            # audio_data = vocoder.convert(...)
+            # 6. 准备推理参数
+            inference_params = {
+                "text": text,
+                "text_lang": "zh",  # 中文
+                "ref_audio_path": ref_audio_path,
+                "prompt_text": role_config.get("prompt_text", ""),
+                "prompt_lang": "zh",
+                "top_k": 5,
+                "top_p": 1.0,
+                "temperature": 1.0,
+                "text_split_method": "cut5",
+                "batch_size": 1,
+                "speed_factor": voice_params.get("speed", 1.0),
+                "fragment_interval": 0.3,
+                "seed": -1,
+                "parallel_infer": True,
+                "repetition_penalty": 1.35
+            }
 
-            # 生成模拟音频数据并创建WAV格式
-            sample_rate = 44100
-            duration = len(text) * 0.3  # 根据文本长度估算时长（每字符0.3秒）
-            duration = max(duration, 1.0)  # 最少1秒
-            duration = min(duration, 10.0)  # 最多10秒
+            logger.info(f"🎵 开始语音合成: '{text}'")
 
-            # 生成随机音频数据（实际应用中应该是模型生成的）
-            samples = np.random.randint(
-                -32768, 32767,
-                size=int(sample_rate * duration),
-                dtype=np.int16
-            )
+            # 7. 执行推理
+            sr, audio_data = next(tts_pipeline.run(inference_params))
 
-            # 创建WAV文件格式
-            wav_data = self._create_wav_file(samples.tobytes(), sample_rate)
+            # 8. 转换为16bit PCM
+            if audio_data.dtype != np.int16:
+                audio_data = (audio_data * 32768).astype(np.int16)
 
-            logger.info(f"🎵 推理完成（模拟数据），WAV文件大小: {len(wav_data)} bytes")
+            # 9. 创建WAV文件
+            wav_data = self._create_wav_file(audio_data.tobytes(), sr)
+
+            logger.info(f"✅ 推理完成，音频大小: {len(wav_data)} bytes, 采样率: {sr}Hz")
+
+            # 10. 清理资源
+            del tts_pipeline
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             return wav_data
 
         except Exception as e:
-            logger.error(f"❌ 推理执行失败: {e}")
+            logger.error(f"❌ GPT-SoVITS推理失败: {e}")
+            logger.error(f"详细错误: {traceback.format_exc()}")
             return b""
+
+    def _create_tts_config(self, gpt_path: str, sovits_path: str) -> 'TTS_Config':
+        """创建TTS配置"""
+        from GPT_SoVITS.TTS_infer_pack.TTS import TTS_Config
+
+        # 创建配置字典
+        config_dict = {
+            "device": self.device,
+            "is_half": True if self.device == "cuda" else False,
+            "version": "v2Pro",
+            "t2s_weights_path": gpt_path,
+            "vits_weights_path": sovits_path,
+            "bert_base_path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large",
+            "cnhuhbert_base_path": "GPT_SoVITS/pretrained_models/chinese-hubert-base"
+        }
+
+        return TTS_Config(config_dict)
+
+    def _get_role_config_by_model(self, gpt_path: str, sovits_path: str) -> Optional[Dict]:
+        """根据模型路径获取角色配置"""
+        gpt_model = os.path.basename(gpt_path)
+        sovits_model = os.path.basename(sovits_path)
+
+        for role_name, config in self.config.get("role_voice_mapping", {}).items():
+            if (config.get("gpt_model") == gpt_model and
+                config.get("sovits_model") == sovits_model):
+                # 添加参考音频路径
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                ref_audio_name = config.get("ref_audio", "")
+                ref_audio_path = os.path.join(current_dir, "../../../GPT-Sovits-slice", ref_audio_name)
+
+                return {
+                    **config,
+                    "ref_audio_path": ref_audio_path
+                }
+
+        return None
 
     def _create_wav_file(self, pcm_data: bytes, sample_rate: int = 44100) -> bytes:
         """

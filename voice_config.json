@@ -23,43 +23,51 @@
   },
   "role_voice_mapping": {
     "张教授": {
-      "gpt_model": "caijiaxin-e15.ckpt",
-      "sovits_model": "caijiaxin_e8_s240.pth",
+      "description": "活力男声，适合教授角色",
+      "gpt_model": "zhangyibo-e15.ckpt",
+      "sovits_model": "zhangyibo_e8_s208.pth",
+      "ref_audio": "zhangyibo-slicer.wav",
+      "prompt_text": "活着。活着，是一个简单而又深刻的命题",
       "voice_params": {
-        "speed": 0.9,
-        "emotion_intensity": 0.7,
-        "pitch_shift": 1.1,
-        "description": "专业女声，适合教授角色"
+        "speed": 1.0,
+        "pitch_shift": 1.0,
+        "emotion_intensity": 0.7
       }
     },
     "李部长": {
-      "gpt_model": "zhangyibo-e15.ckpt",
-      "sovits_model": "zhangyibo_e8_s208.pth",
+      "description": "标准女声，适合领导角色",
+      "gpt_model": "caijiaxin-e15.ckpt",
+      "sovits_model": "caijiaxin_e8_s240.pth",
+      "ref_audio": "caijiaxin-slicer.wav",
+      "prompt_text": "长妈妈，已经说过，是一个一向带领着我的女工",
       "voice_params": {
-        "speed": 1.2,
-        "emotion_intensity": 0.8,
+        "speed": 1.0,
         "pitch_shift": 1.0,
-        "description": "活力男声，适合领导角色"
+        "emotion_intensity": 0.7
       }
     },
     "王老师": {
-      "gpt_model": "myself-e15.ckpt",
-      "sovits_model": "myself_e8_s224.pth",
+      "description": "平静女声，适合教师角色",
+      "gpt_model": "huangting-e15.ckpt",
+      "sovits_model": "huangting_e8_s192.pth",
+      "ref_audio": "huangting-slicer.wav",
+      "prompt_text": "我不记得昆明的雨季有多长，从几月到几月",
       "voice_params": {
         "speed": 1.0,
-        "emotion_intensity": 0.6,
-        "pitch_shift": 1.05,
-        "description": "标准男声，适合教师角色"
+        "pitch_shift": 1.0,
+        "emotion_intensity": 0.7
       }
     },
     "小雨": {
-      "gpt_model": "zhouyajing-e15.ckpt",
-      "sovits_model": "zhouyajing_e8_s192.pth",
+      "description": "温柔女声，适合朋友角色",
+      "gpt_model": "hongyajing-e15.ckpt",
+      "sovits_model": "hongyajing_e8_s264.pth",
+      "ref_audio": "hongyajing-slicer.wav",
+      "prompt_text": "十四五以来，百年变局加速演进，我国改革发展稳定任务之艰巨前所未有",
       "voice_params": {
-        "speed": 1.1,
-        "emotion_intensity": 0.9,
-        "pitch_shift": 0.95,
-        "description": "温柔女声，适合朋友角色"
+        "speed": 1.0,
+        "pitch_shift": 1.0,
+        "emotion_intensity": 0.7
       }
     }
   },
