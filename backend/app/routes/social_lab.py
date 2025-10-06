@@ -42,13 +42,12 @@ async def get_scenarios():
 async def start_session(request: Dict):
     """开始新的练习会话"""
     try:
-        user_id = request.get('user_id', 1)
         scenario_id = request.get('scenario_id')
 
         if not scenario_id:
             raise HTTPException(status_code=400, detail="缺少场景ID")
 
-        session = await social_lab_service.start_practice_session(user_id, scenario_id)
+        session = await social_lab_service.start_practice_session(scenario_id)
 
         if not session:
             raise HTTPException(status_code=404, detail="场景不存在或不可用")
@@ -57,10 +56,9 @@ async def start_session(request: Dict):
         session_key = f"session_{session['session_id']}"
         active_sessions[session_key] = {
             'session_id': session['session_id'],
-            'user_id': user_id,
             'scenario_id': scenario_id,
             'start_time': datetime.now(),
-            'dialogue_history': []
+            'dialogue_history': session.get('dialogue_history', [])
         }
 
         logger.info(f"🎯 开始练习会话: {session['session_id']} - 场景: {scenario_id}")
@@ -188,16 +186,6 @@ async def end_session(session_id: int, request: Dict = None):
         logger.error(f"❌ 结束会话失败: {e}")
         raise HTTPException(status_code=500, detail="结束会话失败")
 
-@router.get("/progress")
-async def get_user_progress(user_id: int = 1):
-    """获取用户进度统计"""
-    try:
-        progress = await social_lab_service.get_user_progress(user_id)
-        return progress
-    except Exception as e:
-        logger.error(f"❌ 获取用户进度失败: {e}")
-        raise HTTPException(status_code=500, detail="获取进度失败")
-
 @router.get("/history")
 async def get_session_history(user_id: int = 1, limit: int = 10):
     """获取会话历史"""
@@ -207,34 +195,6 @@ async def get_session_history(user_id: int = 1, limit: int = 10):
     except Exception as e:
         logger.error(f"❌ 获取会话历史失败: {e}")
         raise HTTPException(status_code=500, detail="获取历史失败")
-
-@router.get("/achievements")
-async def get_available_achievements():
-    """获取所有可用成就"""
-    try:
-        from app.models.database import db_manager
-        achievements = db_manager.execute_query("SELECT * FROM achievements")
-        return {"achievements": [dict(a) for a in achievements]}
-    except Exception as e:
-        logger.error(f"❌ 获取成就列表失败: {e}")
-        raise HTTPException(status_code=500, detail="获取成就失败")
-
-@router.get("/user-achievements")
-async def get_user_achievements(user_id: int = 1):
-    """获取用户已解锁的成就"""
-    try:
-        from app.models.database import db_manager
-        achievements = db_manager.execute_query("""
-            SELECT a.*, ua.unlocked_at
-            FROM achievements a
-            JOIN user_achievements ua ON a.id = ua.achievement_id
-            WHERE ua.user_id = ?
-            ORDER BY ua.unlocked_at DESC
-        """, (user_id,))
-        return {"achievements": [dict(a) for a in achievements]}
-    except Exception as e:
-        logger.error(f"❌ 获取用户成就失败: {e}")
-        raise HTTPException(status_code=500, detail="获取用户成就失败")
 
 @router.get("/stats")
 async def get_social_lab_stats():

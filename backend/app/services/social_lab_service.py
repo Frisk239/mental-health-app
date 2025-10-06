@@ -26,10 +26,23 @@ class SocialLabService:
             # 初始化数据库
             self.db.initialize_database()
             logger.info("✅ 社交实验室数据库初始化完成")
+
+            # 清理旧的会话记录
+            self._cleanup_sessions()
+            logger.info("✅ 旧会话记录清理完成")
+
             return True
         except Exception as e:
             logger.error(f"❌ 社交实验室服务初始化失败: {e}")
             return False
+
+    def _cleanup_sessions(self):
+        """清理所有旧的会话记录"""
+        try:
+            self.db.execute_update("DELETE FROM practice_sessions")
+            logger.info("✅ 已清理所有旧会话记录")
+        except Exception as e:
+            logger.error(f"❌ 清理会话记录失败: {e}")
 
     async def get_available_scenarios(self, user_id: int = 1) -> List[Dict]:
         """获取用户可用的场景列表"""
@@ -38,13 +51,6 @@ class SocialLabService:
             scenarios = self.db.execute_query("""
                 SELECT * FROM scenarios ORDER BY difficulty, created_at
             """)
-
-            # 获取用户已解锁的成就
-            unlocked_achievements = self.db.execute_query("""
-                SELECT achievement_id FROM user_achievements WHERE user_id = ?
-            """, (user_id,))
-
-            unlocked_achievement_ids = {row['achievement_id'] for row in unlocked_achievements}
 
             available_scenarios = []
             for scenario in scenarios:
@@ -68,7 +74,7 @@ class SocialLabService:
             logger.error(f"❌ 获取场景列表失败: {e}")
             return []
 
-    async def start_practice_session(self, user_id: int, scenario_id: str) -> Optional[Dict]:
+    async def start_practice_session(self, scenario_id: str) -> Optional[Dict]:
         """开始练习会话"""
         try:
             # 检查场景是否存在
@@ -81,11 +87,12 @@ class SocialLabService:
 
             scenario_data = dict(scenario[0])
 
-            # 创建新的练习会话
+            # 创建新的练习会话（只记录场景ID和初始对话历史）
+            initial_history = []
             session_id = self.db.execute_insert("""
-                INSERT INTO practice_sessions (user_id, scenario_id, start_time)
-                VALUES (?, ?, ?)
-            """, (user_id, scenario_id, datetime.now()))
+                INSERT INTO practice_sessions (scenario_id, dialogue_history)
+                VALUES (?, ?)
+            """, (scenario_id, json.dumps(initial_history)))
 
             # 解析场景脚本
             script = {}
@@ -99,7 +106,7 @@ class SocialLabService:
                 'session_id': session_id,
                 'scenario': scenario_data,
                 'script': script,
-                'start_time': datetime.now().isoformat()
+                'dialogue_history': initial_history
             }
 
         except Exception as e:
@@ -109,9 +116,9 @@ class SocialLabService:
     async def generate_ai_response(self, session_id: int, user_message: str,
                                  voice_emotions: Optional[Dict] = None,
                                  face_emotions: Optional[Dict] = None) -> Dict:
-        """生成AI回复"""
+        """生成AI回复（包含对话上下文）"""
         try:
-            # 获取会话信息
+            # 获取会话信息和对话历史
             session = self.db.execute_query("""
                 SELECT ps.*, s.name as scenario_name, s.ai_role, s.script
                 FROM practice_sessions ps
@@ -132,11 +139,20 @@ class SocialLabService:
                 except:
                     script = {}
 
+            # 获取当前对话历史
+            dialogue_history = []
+            if session_data.get('dialogue_history'):
+                try:
+                    dialogue_history = json.loads(session_data['dialogue_history'])
+                except:
+                    dialogue_history = []
+
             # 构建AI提示词
             ai_role = session_data.get('ai_role', '助手')
             scenario_name = session_data.get('scenario_name', '社交练习')
 
-            prompt = f"""
+            # 构建对话上下文
+            context_prompt = f"""
 你正在扮演一个{ai_role}，在一个{scenario_name}场景中与用户进行对话练习。
 
 你的目标是：
@@ -145,25 +161,39 @@ class SocialLabService:
 3. 根据用户的表现给予适当的反馈
 4. 保持对话的连贯性和教育性
 
-当前用户信息：
+"""
+
+            # 添加对话历史上下文（最近的几轮对话）
+            if dialogue_history:
+                context_prompt += "\n对话历史：\n"
+                # 只保留最近的5轮对话作为上下文
+                recent_history = dialogue_history[-10:]  # 最近10条消息（5轮对话）
+                for msg in recent_history:
+                    role = "用户" if msg.get('role') == 'user' else ai_role
+                    message = msg.get('message', '')
+                    context_prompt += f"{role}: {message}\n"
+                context_prompt += "\n"
+
+            context_prompt += f"""当前用户信息：
 - 用户消息: "{user_message}"
 """
 
             if voice_emotions:
-                prompt += f"- 语音情绪: {json.dumps(voice_emotions, ensure_ascii=False)}\n"
+                context_prompt += f"- 语音情绪: {json.dumps(voice_emotions, ensure_ascii=False)}\n"
 
             if face_emotions:
-                prompt += f"- 面部表情: {json.dumps(face_emotions, ensure_ascii=False)}\n"
+                context_prompt += f"- 面部表情: {json.dumps(face_emotions, ensure_ascii=False)}\n"
 
-            prompt += """
+            context_prompt += f"""
 请以{ai_role}的身份回复，回复要自然、适当，并有助于用户练习社交技能。
 重要：请不要使用括号()来表示情绪或动作，如（微笑点头），请直接用正常对话的方式表达。
+请基于对话历史保持对话的连贯性。
 """
 
             # 调用DeepSeek生成回复
             messages = [
-                {"role": "system", "content": "你是一个专业的社交技能教练AI助手。请根据用户输入和场景要求，生成自然、适当的回复。"},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "你是一个专业的社交技能教练AI助手。请根据用户输入、场景要求和对话历史，生成自然、连贯的回复。"},
+                {"role": "user", "content": context_prompt}
             ]
             ai_result = await deepseek_service.chat_completion(messages, temperature=0.8)
 
@@ -172,10 +202,34 @@ class SocialLabService:
             else:
                 ai_response = "我理解你的分享，请继续练习。"
 
+            # 更新对话历史
+            new_user_message = {
+                'role': 'user',
+                'message': user_message,
+                'timestamp': datetime.now().isoformat(),
+                'voice_emotions': voice_emotions,
+                'face_emotions': face_emotions
+            }
+            new_ai_message = {
+                'role': 'assistant',
+                'message': ai_response,
+                'timestamp': datetime.now().isoformat()
+            }
+
+            dialogue_history.extend([new_user_message, new_ai_message])
+
+            # 更新数据库中的对话历史
+            self.db.execute_update("""
+                UPDATE practice_sessions
+                SET dialogue_history = ?
+                WHERE id = ?
+            """, (json.dumps(dialogue_history), session_id))
+
             return {
                 'response': ai_response,
                 'role': ai_role,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
+                'dialogue_history': dialogue_history
             }
 
         except Exception as e:
@@ -217,8 +271,7 @@ class SocialLabService:
                 session_id
             ))
 
-            # 检查成就解锁
-            await self._check_achievements(session_id)
+
 
             return feedback
 
@@ -314,90 +367,9 @@ class SocialLabService:
                 'encouragement': '保持进步，继续努力！'
             }
 
-    async def _check_achievements(self, session_id: int):
-        """检查成就解锁"""
-        try:
-            # 获取会话信息
-            session = self.db.execute_query("""
-                SELECT * FROM practice_sessions WHERE id = ?
-            """, (session_id,))
 
-            if not session:
-                return
 
-            session_data = dict(session[0])
-            user_id = session_data['user_id']
 
-            # 检查"初次尝试"成就
-            first_session_count = self.db.execute_query("""
-                SELECT COUNT(*) as count FROM practice_sessions WHERE user_id = ?
-            """, (user_id,))
-
-            if first_session_count and first_session_count[0]['count'] >= 1:
-                await self._unlock_achievement(user_id, 'first_session')
-
-            # 检查其他成就逻辑...
-
-        except Exception as e:
-            logger.error(f"❌ 检查成就失败: {e}")
-
-    async def _unlock_achievement(self, user_id: int, achievement_id: str):
-        """解锁成就"""
-        try:
-            # 检查是否已解锁
-            existing = self.db.execute_query("""
-                SELECT * FROM user_achievements
-                WHERE user_id = ? AND achievement_id = ?
-            """, (user_id, achievement_id))
-
-            if existing:
-                return  # 已解锁
-
-            # 解锁成就
-            self.db.execute_insert("""
-                INSERT INTO user_achievements (user_id, achievement_id)
-                VALUES (?, ?)
-            """, (user_id, achievement_id))
-
-            logger.info(f"🎉 用户 {user_id} 解锁成就: {achievement_id}")
-
-        except Exception as e:
-            logger.error(f"❌ 解锁成就失败: {e}")
-
-    async def get_user_progress(self, user_id: int = 1) -> Dict:
-        """获取用户进度统计"""
-        try:
-            # 总练习次数
-            total_sessions = self.db.execute_query("""
-                SELECT COUNT(*) as count FROM practice_sessions WHERE user_id = ?
-            """, (user_id,))
-
-            # 平均得分
-            avg_score = self.db.execute_query("""
-                SELECT AVG(total_score) as avg_score FROM practice_sessions
-                WHERE user_id = ? AND total_score IS NOT NULL
-            """, (user_id,))
-
-            # 已解锁成就
-            achievements = self.db.execute_query("""
-                SELECT a.* FROM achievements a
-                JOIN user_achievements ua ON a.id = ua.achievement_id
-                WHERE ua.user_id = ?
-            """, (user_id,))
-
-            return {
-                'total_sessions': total_sessions[0]['count'] if total_sessions else 0,
-                'average_score': avg_score[0]['avg_score'] if avg_score and avg_score[0]['avg_score'] else 0,
-                'achievements': [dict(a) for a in achievements]
-            }
-
-        except Exception as e:
-            logger.error(f"❌ 获取用户进度失败: {e}")
-            return {
-                'total_sessions': 0,
-                'average_score': 0,
-                'achievements': []
-            }
 
     async def get_session_history(self, user_id: int = 1, limit: int = 10) -> List[Dict]:
         """获取会话历史"""

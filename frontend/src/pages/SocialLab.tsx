@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { MessageCircle, Users, Mic, MicOff, Camera, Trophy, BarChart3, Play, Square, Send, Volume2, VolumeX, Settings, Phone, PhoneOff } from 'lucide-react'
+import { MessageCircle, Users, Mic, MicOff, Camera, Play, Square, Send, Volume2, VolumeX, Settings, Phone, PhoneOff } from 'lucide-react'
 import {
   SocialLabScenario,
   PracticeSession,
   ChatMessage,
-  SessionFeedback,
-  UserProgress,
-  Achievement
+  SessionFeedback
 } from '../types'
 
 const SocialLab: React.FC = () => {
@@ -18,7 +16,6 @@ const SocialLab: React.FC = () => {
   const [userMessage, setUserMessage] = useState('')
   const [isSessionActive, setIsSessionActive] = useState(false)
   const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null)
-  const [userProgress, setUserProgress] = useState<UserProgress | null>(null)
   const [loading, setLoading] = useState(false)
 
   // 语音交互状态
@@ -41,7 +38,6 @@ const SocialLab: React.FC = () => {
   // 获取可用场景和语音服务状态
   useEffect(() => {
     fetchScenarios()
-    fetchUserProgress()
     fetchVoiceServiceStatus()
     fetchAvailableRoles()
   }, [])
@@ -85,15 +81,7 @@ const SocialLab: React.FC = () => {
     }
   }
 
-  const fetchUserProgress = async () => {
-    try {
-      const response = await fetch('/api/social-lab/progress')
-      const progress = await response.json()
-      setUserProgress(progress)
-    } catch (error) {
-      console.error('获取用户进度失败:', error)
-    }
-  }
+
 
   const fetchVoiceServiceStatus = async () => {
     try {
@@ -116,13 +104,17 @@ const SocialLab: React.FC = () => {
   }
 
   const startPracticeSession = async (scenario: SocialLabScenario) => {
+    // 如果有活跃会话，先结束当前会话
+    if (isSessionActive && currentSession) {
+      await endPracticeSession()
+    }
+
     try {
       setLoading(true)
       const response = await fetch('/api/social-lab/sessions/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 1,
           scenario_id: scenario.id
         })
       })
@@ -224,9 +216,6 @@ const SocialLab: React.FC = () => {
         websocketRef.current.close()
         websocketRef.current = null
       }
-
-      // 刷新用户进度
-      fetchUserProgress()
 
     } catch (error) {
       console.error('结束会话失败:', error)
@@ -337,10 +326,11 @@ const SocialLab: React.FC = () => {
       }
     } catch (error) {
       console.error('❌ 播放语音失败:', error)
+      const err = error as Error
       console.error('错误详情:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
+        name: err.name,
+        message: err.message,
+        stack: err.stack
       })
     }
   }
@@ -359,53 +349,8 @@ const SocialLab: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* 左侧：场景选择和进度 */}
+          {/* 左侧：场景选择 */}
           <div className="lg:col-span-1 space-y-6">
-            {/* 用户进度 */}
-            {userProgress && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                  <BarChart3 className="w-5 h-5 mr-2" />
-                  练习进度
-                </h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-300">总练习次数</span>
-                    <span className="font-medium">{userProgress.total_sessions}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-300">平均得分</span>
-                    <span className="font-medium">{userProgress.average_score.toFixed(1)}分</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-300">解锁成就</span>
-                    <span className="font-medium">{userProgress.achievements.length}个</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 成就展示 */}
-            {userProgress && userProgress.achievements.length > 0 && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                  <Trophy className="w-5 h-5 mr-2" />
-                  最新成就
-                </h3>
-                <div className="space-y-2">
-                  {userProgress.achievements.slice(0, 3).map((achievement) => (
-                    <div key={achievement.id} className="flex items-center space-x-3 p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                      <span className="text-2xl">{achievement.icon}</span>
-                      <div>
-                        <div className="font-medium text-sm">{achievement.name}</div>
-                        <div className="text-xs text-gray-500">{achievement.description}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* 场景列表 */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -420,7 +365,7 @@ const SocialLab: React.FC = () => {
                         ? 'border-gray-200 dark:border-gray-600 hover:border-blue-300 hover:shadow-md'
                         : 'border-gray-100 dark:border-gray-700 opacity-60 cursor-not-allowed'
                     } ${selectedScenario?.id === scenario.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''}`}
-                    onClick={() => scenario.is_unlocked && !isSessionActive && startPracticeSession(scenario)}
+                    onClick={() => scenario.is_unlocked && startPracticeSession(scenario)}
                   >
                     <div className="flex items-start justify-between mb-2">
                       <h4 className="font-medium text-gray-900 dark:text-white">
@@ -759,15 +704,7 @@ const SocialLab: React.FC = () => {
                     </p>
                   </div>
 
-                  <div className="text-center p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
-                    <div className="w-12 h-12 mx-auto mb-3 bg-orange-100 dark:bg-orange-800 rounded-full flex items-center justify-center">
-                      <Trophy className="w-6 h-6 text-orange-600" />
-                    </div>
-                    <h4 className="font-semibold text-gray-900 dark:text-white mb-2">成就系统</h4>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      完成练习解锁成就，激励持续进步和成长
-                    </p>
-                  </div>
+
                 </div>
 
                 {/* 服务状态指示器 */}
@@ -815,7 +752,6 @@ const SocialLab: React.FC = () => {
                     <span>🎯 支持文本输入</span>
                     <span>🎤 支持语音输入</span>
                     <span>🤖 AI智能反馈</span>
-                    <span>🏆 成就激励系统</span>
                   </div>
                 </div>
               </div>

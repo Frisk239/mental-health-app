@@ -162,22 +162,7 @@ export interface SessionFeedback {
   encouragement: string
 }
 
-export interface UserProgress {
-  total_sessions: number
-  average_score: number
-  achievements: Achievement[]
-}
 
-export interface Achievement {
-  id: string
-  name: string
-  description: string
-  icon: string
-  requirement: string
-  reward_type: string
-  reward_value: string
-  unlocked_at?: string
-}
 
 export interface SocialLabStats {
   total_users: number
