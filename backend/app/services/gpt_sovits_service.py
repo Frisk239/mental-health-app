@@ -27,19 +27,8 @@ import soundfile as sf
 import yaml
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
-# 导入GPT-SoVITS核心模块
-from GPT_SoVITS.AR.models.t2s_lightning_module import Text2SemanticLightningModule
-from GPT_SoVITS.BigVGAN.bigvgan import BigVGAN
-from GPT_SoVITS.feature_extractor.cnhubert import CNHubert
-from GPT_SoVITS.module.mel_processing import mel_spectrogram_torch, spectrogram_torch
-from GPT_SoVITS.module.models import SynthesizerTrn, SynthesizerTrnV3, Generator
-from peft import LoraConfig, get_peft_model
-from GPT_SoVITS.process_ckpt import get_sovits_version_from_path_fast, load_sovits_new
-from GPT_SoVITS.tools.audio_sr import AP_BWE
-from GPT_SoVITS.tools.i18n.i18n import I18nAuto, scan_language_list
-from GPT_SoVITS.TTS_infer_pack.text_segmentation_method import splits
-from GPT_SoVITS.TTS_infer_pack.TextPreprocessor import TextPreprocessor
-from GPT_SoVITS.sv import SV
+# GPT_SoVITS 动态导入模块
+# 不使用直接导入，改为运行时动态导入
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +44,8 @@ def resample(audio_tensor, sr0, sr1, device):
 
 # 语言设置
 language = os.environ.get("language", "Auto")
-language = sys.argv[-1] if sys.argv[-1] in scan_language_list() else language
-i18n = I18nAuto(language=language)
+# 简化语言设置，避免在模块级别使用未导入的函数
+i18n = None  # 将在需要时动态初始化
 
 # 频谱归一化参数
 spec_min = -12
@@ -161,24 +150,199 @@ class NO_PROMPT_ERROR(Exception):
 class GPTSoVITSService:
     """GPT-SoVITS推理服务"""
 
-    def __init__(self, config_path: str = "../../../voice_config.json"):
-        self.config_path = config_path
+    def __init__(self, config_path: str = None):
+        # 计算绝对路径
+        if config_path is None:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.join(current_dir, "../../../")
+            self.config_path = os.path.join(project_root, "voice_config.json")
+        else:
+            self.config_path = config_path
+
         self.config = self._load_config()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # 计算GPT_SoVITS路径
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.gpt_sovits_path = os.path.abspath(os.path.join(current_dir, "../../../GPT_SoVITS"))
 
         # GPT-SoVITS TTS实例
         self.tts_pipeline = None
 
         # 模型路径（使用绝对路径）
-        current_dir = os.path.dirname(os.path.abspath(__file__))
         self.gpt_weights_dir = os.path.join(current_dir, "../../../GPT_weights_v2Pro")
         self.sovits_weights_dir = os.path.join(current_dir, "../../../SoVITS_weights_v2Pro")
 
         # 模型缓存
         self.models_cache = {}
 
+        # 动态导入的模块缓存
+        self._modules_cache = {}
+
+        # 设置模块路径
+        self._setup_module_paths()
+
         # 初始化TTS管道
         self._init_tts_pipeline()
+
+    def _setup_module_paths(self):
+        """设置GPT-SoVITS模块路径到sys.path"""
+        try:
+            paths_to_add = [
+                self.gpt_sovits_path,  # 根目录
+                os.path.join(self.gpt_sovits_path, "AR"),
+                os.path.join(self.gpt_sovits_path, "AR", "models"),
+                os.path.join(self.gpt_sovits_path, "AR", "modules"),
+                os.path.join(self.gpt_sovits_path, "BigVGAN"),
+                os.path.join(self.gpt_sovits_path, "module"),
+                os.path.join(self.gpt_sovits_path, "tools"),
+                os.path.join(self.gpt_sovits_path, "tools", "i18n"),
+                os.path.join(self.gpt_sovits_path, "TTS_infer_pack"),
+                os.path.join(self.gpt_sovits_path, "feature_extractor"),
+                os.path.join(self.gpt_sovits_path, "text"),
+            ]
+
+            for path in paths_to_add:
+                if os.path.exists(path) and path not in sys.path:
+                    sys.path.insert(0, path)
+                    logger.info(f"✅ 添加GPT-SoVITS路径: {path}")
+
+            logger.info(f"📂 GPT_SoVITS sys.path设置完成，总共添加 {len(paths_to_add)} 个路径")
+
+        except Exception as e:
+            logger.error(f"❌ 设置模块路径失败: {e}")
+
+    def _import_module_from_file(self, relative_path: str, class_name: str = None):
+        """从文件动态导入模块或类"""
+        try:
+            import importlib.util
+
+            module_path = os.path.join(self.gpt_sovits_path, relative_path)
+            if not os.path.exists(module_path):
+                logger.error(f"模块文件不存在: {module_path}")
+                return None
+
+            # 创建模块名（基于相对路径）
+            module_name = relative_path.replace("/", ".").replace("\\", ".").replace(".py", "")
+
+            # 检查缓存
+            if module_name in self._modules_cache:
+                module = self._modules_cache[module_name]
+            else:
+                # 对于 TTS.py，先预导入其依赖的模块
+                if "TTS.py" in relative_path:
+                    self._preload_tts_dependencies()
+
+                # 动态导入
+                spec = importlib.util.spec_from_file_location(module_name, module_path)
+                if spec is None or spec.loader is None:
+                    logger.error(f"无法创建模块规格: {module_path}")
+                    return None
+
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                self._modules_cache[module_name] = module
+                logger.info(f"✅ 动态导入模块: {module_name}")
+
+            # 如果指定了类名，返回类；否则返回模块
+            if class_name:
+                if hasattr(module, class_name):
+                    return getattr(module, class_name)
+                else:
+                    logger.error(f"模块 {module_name} 中没有找到类 {class_name}")
+                    return None
+
+            return module
+
+        except Exception as e:
+            logger.error(f"❌ 动态导入失败 {relative_path}: {e}")
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            return None
+
+    def _preload_tts_dependencies(self):
+        """预加载TTS模块的依赖"""
+        try:
+            logger.info("🎯 预加载TTS依赖模块...")
+
+            # 首先创建并注册GPT_SoVITS包
+            self._register_gpt_sovits_package()
+
+            # 预导入关键模块
+            dependencies = [
+                "AR/models/t2s_lightning_module.py",
+                "BigVGAN/bigvgan.py",
+                "feature_extractor/cnhubert.py",
+                "module/mel_processing.py",
+                "module/models.py",
+                "process_ckpt.py",
+                "tools/audio_sr.py",
+                "tools/i18n/i18n.py",
+                "TTS_infer_pack/text_segmentation_method.py",
+                "TTS_infer_pack/TextPreprocessor.py",
+                "sv.py"
+            ]
+
+            for dep in dependencies:
+                try:
+                    self._import_module_from_file(dep)
+                except Exception as e:
+                    logger.warning(f"预加载依赖失败 {dep}: {e}")
+                    continue
+
+            logger.info("✅ TTS依赖预加载完成")
+
+        except Exception as e:
+            logger.error(f"❌ 预加载TTS依赖失败: {e}")
+
+    def _register_gpt_sovits_package(self):
+        """注册GPT_SoVITS包到sys.modules"""
+        try:
+            import types
+            import sys
+
+            # 创建GPT_SoVITS包对象
+            gpt_sovits_package = types.ModuleType('GPT_SoVITS')
+            gpt_sovits_package.__path__ = [self.gpt_sovits_path]
+            gpt_sovits_package.__file__ = os.path.join(self.gpt_sovits_path, '__init__.py')
+
+            # 注册到sys.modules
+            sys.modules['GPT_SoVITS'] = gpt_sovits_package
+
+            # 递归创建子包
+            self._create_subpackages(gpt_sovits_package, self.gpt_sovits_path)
+
+            logger.info("✅ GPT_SoVITS包注册完成")
+
+        except Exception as e:
+            logger.error(f"❌ 注册GPT_SoVITS包失败: {e}")
+
+    def _create_subpackages(self, parent_package, parent_path):
+        """递归创建子包"""
+        try:
+            import types
+
+            # 遍历子目录
+            for item in os.listdir(parent_path):
+                item_path = os.path.join(parent_path, item)
+                if os.path.isdir(item_path):
+                    # 检查是否有__init__.py
+                    init_file = os.path.join(item_path, '__init__.py')
+                    if os.path.exists(init_file) or item in ['f5_tts', 'AR', 'BigVGAN', 'module', 'tools', 'TTS_infer_pack', 'feature_extractor', 'text']:
+                        # 创建子包
+                        subpackage_name = f"{parent_package.__name__}.{item}"
+                        subpackage = types.ModuleType(subpackage_name)
+                        subpackage.__path__ = [item_path]
+                        subpackage.__file__ = init_file if os.path.exists(init_file) else item_path
+
+                        # 设置父包引用
+                        setattr(parent_package, item, subpackage)
+                        sys.modules[subpackage_name] = subpackage
+
+                        # 递归创建子包的子包
+                        self._create_subpackages(subpackage, item_path)
+
+        except Exception as e:
+            logger.warning(f"创建子包失败 {parent_path}: {e}")
 
     def _init_tts_pipeline(self):
         """初始化TTS管道"""
@@ -446,8 +610,11 @@ class GPTSoVITSService:
             logger.info("✅ TTS配置创建完成")
 
             # 2. 初始化TTS管道
-            from GPT_SoVITS.TTS_infer_pack.TTS import TTS
-            tts_pipeline = TTS(tts_config)
+            TTS_class = self._import_module_from_file("TTS_infer_pack/TTS.py", "TTS")
+            if TTS_class is None:
+                logger.error("❌ 无法导入TTS类")
+                return b""
+            tts_pipeline = TTS_class(tts_config)  # tts_config 已经是字典了
             logger.info("✅ TTS管道初始化完成")
 
             # 3. 获取角色配置
@@ -512,22 +679,73 @@ class GPTSoVITSService:
             logger.error(f"详细错误: {traceback.format_exc()}")
             return b""
 
-    def _create_tts_config(self, gpt_path: str, sovits_path: str) -> 'TTS_Config':
-        """创建TTS配置"""
-        from GPT_SoVITS.TTS_infer_pack.TTS import TTS_Config
+    def _create_tts_config(self, gpt_path: str, sovits_path: str):
+        """创建TTS配置字典"""
+        # 计算预训练模型的绝对路径
+        pretrained_dir = os.path.join(self.gpt_sovits_path, "pretrained_models")
+        bert_path = os.path.join(pretrained_dir, "chinese-roberta-wwm-ext-large")
+        cnhubert_path = os.path.join(pretrained_dir, "chinese-hubert-base")
 
-        # 创建配置字典
-        config_dict = {
+        # 创建custom配置（TTS_Config期望的格式）
+        custom_config = {
             "device": self.device,
             "is_half": True if self.device == "cuda" else False,
             "version": "v2Pro",
             "t2s_weights_path": gpt_path,
             "vits_weights_path": sovits_path,
-            "bert_base_path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large",
-            "cnhuhbert_base_path": "GPT_SoVITS/pretrained_models/chinese-hubert-base"
+            "bert_base_path": bert_path,
+            "cnhuhbert_base_path": cnhubert_path
         }
 
-        return TTS_Config(config_dict)
+        # 返回包含custom键的配置字典
+        return {"custom": custom_config}
+
+    def _get_default_model_paths(self):
+        """获取默认模型路径（从配置文件中读取）"""
+        try:
+            # 从配置文件中读取模型目录
+            model_paths = self.config.get("model_paths", {})
+            gpt_dir = model_paths.get("gpt_weights_dir", "./GPT_weights_v2Pro")
+            sovits_dir = model_paths.get("sovits_weights_dir", "./SoVITS_weights_v2Pro")
+
+            # 转换为绝对路径
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.abspath(os.path.join(current_dir, "../../.."))
+
+            gpt_weights_dir = os.path.join(project_root, gpt_dir.lstrip("./"))
+            sovits_weights_dir = os.path.join(project_root, sovits_dir.lstrip("./"))
+
+            # 使用默认角色 "王老师" 的模型
+            default_role = "王老师"
+            role_config = self.config.get("role_voice_mapping", {}).get(default_role)
+
+            if role_config:
+                gpt_model = role_config.get("gpt_model")
+                sovits_model = role_config.get("sovits_model")
+
+                if gpt_model and sovits_model:
+                    gpt_path = os.path.join(gpt_weights_dir, gpt_model)
+                    sovits_path = os.path.join(sovits_weights_dir, sovits_model)
+
+                    # 检查文件是否存在
+                    if os.path.exists(gpt_path) and os.path.exists(sovits_path):
+                        return gpt_path, sovits_path
+
+            # 如果默认角色模型不存在，使用第一个可用的模型
+            gpt_models = self._get_available_models("gpt")
+            sovits_models = self._get_available_models("sovits")
+
+            if gpt_models and sovits_models:
+                gpt_path = os.path.join(gpt_weights_dir, gpt_models[0])
+                sovits_path = os.path.join(sovits_weights_dir, sovits_models[0])
+                return gpt_path, sovits_path
+
+            # 如果都没有，返回None
+            return None, None
+
+        except Exception as e:
+            logger.error(f"获取默认模型路径失败: {e}")
+            return None, None
 
     def _get_role_config_by_model(self, gpt_path: str, sovits_path: str) -> Optional[Dict]:
         """根据模型路径获取角色配置"""
@@ -540,7 +758,24 @@ class GPTSoVITSService:
                 # 添加参考音频路径
                 current_dir = os.path.dirname(os.path.abspath(__file__))
                 ref_audio_name = config.get("ref_audio", "")
-                ref_audio_path = os.path.join(current_dir, "../../../GPT-Sovits-slice", ref_audio_name)
+                # 尝试多个可能的路径
+                possible_paths = [
+                    os.path.join(current_dir, "../../../GPT-Sovits-slice", ref_audio_name),
+                    os.path.join(current_dir, "../../../GPT-Sovits-slice", ref_audio_name.replace("-slicer", "")),
+                    os.path.join(current_dir, "../../../GPT-Sovits-slice", f"{role_name}.wav"),
+                    os.path.join(current_dir, "../../../GPT-Sovits-slice", f"{gpt_model.split('-')[0]}.wav")
+                ]
+
+                ref_audio_path = None
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        ref_audio_path = path
+                        break
+
+                if not ref_audio_path:
+                    logger.warning(f"⚠️ 参考音频不存在: {possible_paths[0]}")
+                    # 使用第一个可能的路径作为默认值
+                    ref_audio_path = possible_paths[0]
 
                 return {
                     **config,

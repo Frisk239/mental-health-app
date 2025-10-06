@@ -7,15 +7,29 @@ import json
 import asyncio
 import logging
 import os
+import sys
+import traceback
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# 添加GPT_SoVITS到Python路径（必须在导入之前）
+current_dir = os.path.dirname(os.path.abspath(__file__))
+gpt_sovits_path = os.path.abspath(os.path.join(current_dir, "../../../GPT_SoVITS"))
+if gpt_sovits_path not in sys.path:
+    sys.path.insert(0, gpt_sovits_path)
+    logger.info(f"✅ 添加GPT_SoVITS路径到Python路径: {gpt_sovits_path}")
+
+# 计算绝对路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.join(current_dir, "../../../")
+default_config_path = os.path.join(project_root, "voice_config.json")
+
 class VoiceService:
     """语音服务主控制器"""
 
-    def __init__(self, config_path: str = "voice_config.json"):
+    def __init__(self, config_path: str = default_config_path):
         self.config_path = config_path
         self.config = self._load_config()
         self.input_mode = "text"  # text 或 voice
@@ -34,11 +48,11 @@ class VoiceService:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except FileNotFoundError:
-            logger.warning(f"配置文件 {self.config_path} 不存在，使用默认配置")
-            return self._get_default_config()
+            logger.error(f"❌ 配置文件 {self.config_path} 不存在")
+            raise FileNotFoundError(f"配置文件 {self.config_path} 不存在")
         except Exception as e:
-            logger.error(f"加载配置文件失败: {e}")
-            return self._get_default_config()
+            logger.error(f"❌ 加载配置文件失败: {e}")
+            raise Exception(f"加载配置文件失败: {e}")
 
     def _get_default_config(self) -> Dict:
         """获取默认配置"""
@@ -92,12 +106,21 @@ class VoiceService:
     async def _initialize_tts_service(self):
         """初始化语音合成服务"""
         try:
+            logger.info("🎯 开始初始化GPT-SoVITS服务...")
+            logger.info(f"📁 当前Python路径包含GPT_SoVITS: {'GPT_SoVITS' in str(sys.path)}")
+            logger.info(f"📂 sys.path: {[p for p in sys.path if 'GPT_SoVITS' in p or 'mental-health' in p]}")
+
             from .gpt_sovits_service import GPTSoVITSService
+            logger.info("✅ GPT-SoVITS模块导入成功")
+
             self.tts_service = GPTSoVITSService(self.config_path)
+            logger.info("✅ GPT-SoVITS服务实例创建成功")
+
             await self.tts_service.initialize()
             logger.info("✅ GPT-SoVITS服务初始化完成")
-        except ImportError:
-            logger.warning("⚠️ GPT-SoVITS服务未配置，将使用纯文本模式")
+        except Exception as e:
+            logger.warning(f"⚠️ GPT-SoVITS服务初始化失败: {e}，将使用纯文本模式")
+            logger.warning(f"🔍 详细错误信息: {traceback.format_exc()}")
             self.tts_service = None
 
     async def process_input(self, input_data: Any, input_type: str = "text") -> Tuple[str, str]:

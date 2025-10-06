@@ -40,6 +40,15 @@ protobuf==4.25.0
 scipy==1.11.4
 matplotlib==3.8.2
 einops==0.7.0
+pytorch-lightning==2.1.0  # GPT-SoVITS 训练框架依赖
+x-transformers==2.8.2  # GPT-SoVITS F5-TTS 依赖
+jieba==0.42.1  # 中文分词库
+jieba_fast  # 快速中文分词库
+fast-langdetect>=0.3.1  # 语言检测库
+split-lang  # 语言分割库
+cn2an  # 中文数字转换库
+pypinyin  # 中文拼音转换库
+onnxruntime-gpu; platform_machine == "x86_64" or platform_machine == "AMD64"  # ONNX Runtime for GPU
 
 # WebSocket
 websockets==12.0

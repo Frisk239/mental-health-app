@@ -57,12 +57,8 @@ class SocialLabService:
                     except:
                         scenario_dict['script'] = {}
 
-                # 检查解锁条件
-                unlocked_by = scenario_dict.get('unlocked_by')
-                if unlocked_by is None or unlocked_by in unlocked_achievement_ids:
-                    scenario_dict['is_unlocked'] = True
-                else:
-                    scenario_dict['is_unlocked'] = False
+                # 直接解锁所有场景
+                scenario_dict['is_unlocked'] = True
 
                 available_scenarios.append(scenario_dict)
 
@@ -161,6 +157,7 @@ class SocialLabService:
 
             prompt += """
 请以{ai_role}的身份回复，回复要自然、适当，并有助于用户练习社交技能。
+重要：请不要使用括号()来表示情绪或动作，如（微笑点头），请直接用正常对话的方式表达。
 """
 
             # 调用DeepSeek生成回复
