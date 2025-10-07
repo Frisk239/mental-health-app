@@ -23,6 +23,8 @@ const SocialLab: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false)
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true)
   const [audioLevel, setAudioLevel] = useState(0)
+  const [voiceInputText, setVoiceInputText] = useState('')  // 语音识别结果
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false)  // 正在处理语音
   const [availableRoles, setAvailableRoles] = useState<any[]>([])
   const [voiceServiceStatus, setVoiceServiceStatus] = useState<any>(null)
 
@@ -244,6 +246,149 @@ const SocialLab: React.FC = () => {
       case 'hard': return '困难'
       default: return difficulty
     }
+  }
+
+  // 录音功能
+  const startRecording = async () => {
+    try {
+      console.log('🎤 开始录音...')
+
+      // 获取麦克风权限
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          sampleRate: 16000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true
+        }
+      })
+
+      // 创建音频上下文用于可视化
+      audioContextRef.current = new AudioContext()
+      const source = audioContextRef.current.createMediaStreamSource(stream)
+      analyserRef.current = audioContextRef.current.createAnalyser()
+      analyserRef.current.fftSize = 256
+      source.connect(analyserRef.current)
+
+      // 创建MediaRecorder
+      mediaRecorderRef.current = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      })
+
+      audioChunksRef.current = []
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+
+      mediaRecorderRef.current.onstop = async () => {
+        console.log('⏹️ 录音停止，开始处理音频...')
+
+        // 停止所有轨道
+        stream.getTracks().forEach(track => track.stop())
+
+        // 合并音频数据
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+
+        if (audioBlob.size > 0) {
+          // 处理语音输入
+          await processVoiceInput(audioBlob)
+        } else {
+          console.error('❌ 录音数据为空')
+          setVoiceInputText('录音失败，请重试')
+        }
+
+        // 清理
+        if (audioContextRef.current) {
+          await audioContextRef.current.close()
+          audioContextRef.current = null
+        }
+        analyserRef.current = null
+      }
+
+      // 开始录音
+      mediaRecorderRef.current.start(100) // 每100ms收集一次数据
+      setIsRecording(true)
+      setVoiceInputText('') // 清空之前的文本
+
+      console.log('✅ 录音开始')
+
+    } catch (error) {
+      console.error('❌ 录音失败:', error)
+      alert('无法访问麦克风，请检查权限设置')
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      console.log('🛑 停止录音')
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+    }
+  }
+
+  const processVoiceInput = async (audioBlob: Blob) => {
+    try {
+      setIsProcessingVoice(true)
+      console.log('🔄 开始处理语音输入...')
+
+      // 创建FormData
+      const formData = new FormData()
+      formData.append('audio_file', audioBlob, 'recording.webm')
+      formData.append('enable_stt', 'true')
+
+      // 调用后端API
+      const response = await fetch('/api/voice/process-voice-input', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log('✅ 语音识别结果:', result)
+
+        if (result.success && result.processed_text) {
+          setVoiceInputText(result.processed_text)
+          console.log('📝 语音识别成功:', result.processed_text)
+        } else {
+          setVoiceInputText('语音识别失败，请重试')
+          console.error('❌ 语音识别失败:', result)
+        }
+      } else {
+        const errorText = await response.text()
+        console.error('❌ API调用失败:', response.status, errorText)
+        setVoiceInputText('语音识别服务暂时不可用')
+      }
+
+    } catch (error) {
+      console.error('❌ 处理语音输入失败:', error)
+      setVoiceInputText('处理失败，请重试')
+    } finally {
+      setIsProcessingVoice(false)
+    }
+  }
+
+  const sendVoiceMessage = () => {
+    if (!voiceInputText.trim() || !websocketRef.current) return
+
+    const message: ChatMessage = {
+      role: 'user',
+      message: voiceInputText,
+      timestamp: new Date().toISOString()
+    }
+
+    setChatMessages(prev => [...prev, message])
+
+    // 发送消息到WebSocket
+    websocketRef.current.send(JSON.stringify({
+      message: voiceInputText,
+      voice_emotions: null, // 可以集成语音情绪
+      face_emotions: null  // 可以集成面部情绪
+    }))
+
+    setVoiceInputText('') // 清空输入框
   }
 
   const playVoiceMessage = async (text: string) => {
@@ -533,50 +678,72 @@ const SocialLab: React.FC = () => {
                   {/* 语音输入模式 */}
                   {inputMode === 'voice' && (
                     <div className="space-y-3">
-                      <div className="flex items-center justify-center space-x-4">
-                        <button
-                          onClick={() => {/* 开始录音 */}}
-                          disabled={isRecording}
-                          className={`px-6 py-3 rounded-lg font-medium transition-all ${
-                            isRecording
-                              ? 'bg-gray-400 cursor-not-allowed'
-                              : 'bg-green-600 hover:bg-green-700 text-white'
-                          }`}
-                        >
-                          {isRecording ? (
-                            <>
-                              <div className="flex items-center space-x-2">
-                                <div className="flex space-x-1">
-                                  {[...Array(5)].map((_, i) => (
-                                    <div
-                                      key={i}
-                                      className="w-1 bg-white rounded-full transition-all"
-                                      style={{
-                                        height: `${Math.max(8, 20 * audioLevel)}px`
-                                      }}
-                                    />
-                                  ))}
-                                </div>
-                                <span>录音中...</span>
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              <Mic className="w-5 h-5 mr-2" />
-                              开始录音
-                            </>
-                          )}
-                        </button>
+                      {/* 语音识别结果输入框 */}
+                      <div className="space-y-2">
+                        <textarea
+                          value={voiceInputText}
+                          onChange={(e) => setVoiceInputText(e.target.value)}
+                          placeholder={isProcessingVoice ? "正在识别中..." : "语音识别结果将显示在这里..."}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-700 dark:text-white resize-none"
+                          rows={3}
+                          disabled={isProcessingVoice}
+                        />
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={startRecording}
+                              disabled={isRecording || isProcessingVoice}
+                              className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                                isRecording || isProcessingVoice
+                                  ? 'bg-gray-400 cursor-not-allowed'
+                                  : 'bg-green-600 hover:bg-green-700 text-white'
+                              }`}
+                            >
+                              {isRecording ? (
+                                <>
+                                  <div className="flex items-center space-x-2">
+                                    <div className="flex space-x-1">
+                                      {[...Array(3)].map((_, i) => (
+                                        <div
+                                          key={i}
+                                          className="w-1 bg-white rounded-full transition-all"
+                                          style={{
+                                            height: `${Math.max(8, 15 * audioLevel)}px`
+                                          }}
+                                        />
+                                      ))}
+                                    </div>
+                                    <span>录音中...</span>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <Mic className="w-4 h-4 mr-2" />
+                                  开始录音
+                                </>
+                              )}
+                            </button>
 
-                        {isRecording && (
+                            {isRecording && (
+                              <button
+                                onClick={stopRecording}
+                                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium"
+                              >
+                                <Square className="w-4 h-4 mr-2" />
+                                停止录音
+                              </button>
+                            )}
+                          </div>
+
                           <button
-                            onClick={() => {/* 停止录音 */}}
-                            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium"
+                            onClick={sendVoiceMessage}
+                            disabled={!voiceInputText.trim() || !websocketRef.current || isProcessingVoice}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg flex items-center"
                           >
-                            <Square className="w-4 h-4 mr-2" />
-                            停止录音
+                            <Send className="w-4 h-4 mr-2" />
+                            发送
                           </button>
-                        )}
+                        </div>
                       </div>
 
                       {/* 录音状态指示器 */}
@@ -591,9 +758,17 @@ const SocialLab: React.FC = () => {
                         </div>
                       )}
 
+                      {/* 处理状态指示器 */}
+                      {isProcessingVoice && (
+                        <div className="flex items-center justify-center space-x-2 text-sm text-blue-600 dark:text-blue-400">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                          <span>正在识别语音...</span>
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>🎤 点击按钮开始语音输入</span>
-                        <span>🔊 支持实时语音识别</span>
+                        <span>🎤 录音后可手动修改识别结果</span>
+                        <span>🔊 支持中文语音识别</span>
                       </div>
                     </div>
                   )}
@@ -673,38 +848,38 @@ const SocialLab: React.FC = () => {
                 </div>
 
                 {/* 功能特色展示 */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                  <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                    <div className="w-12 h-12 mx-auto mb-3 bg-blue-100 dark:bg-blue-800 rounded-full flex items-center justify-center">
-                      <MessageCircle className="w-6 h-6 text-blue-600" />
+                <div className="flex justify-center">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8 max-w-4xl">
+                    <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <div className="w-12 h-12 mx-auto mb-3 bg-blue-100 dark:bg-blue-800 rounded-full flex items-center justify-center">
+                        <MessageCircle className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <h4 className="font-semibold text-gray-900 dark:text-white mb-2">智能对话</h4>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        基于DeepSeek的AI伙伴，自然流畅的对话体验
+                      </p>
                     </div>
-                    <h4 className="font-semibold text-gray-900 dark:text-white mb-2">智能对话</h4>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      基于DeepSeek的AI伙伴，自然流畅的对话体验
-                    </p>
-                  </div>
 
-                  <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                    <div className="w-12 h-12 mx-auto mb-3 bg-green-100 dark:bg-green-800 rounded-full flex items-center justify-center">
-                      <Mic className="w-6 h-6 text-green-600" />
+                    <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                      <div className="w-12 h-12 mx-auto mb-3 bg-green-100 dark:bg-green-800 rounded-full flex items-center justify-center">
+                        <Mic className="w-6 h-6 text-green-600" />
+                      </div>
+                      <h4 className="font-semibold text-gray-900 dark:text-white mb-2">语音交互</h4>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        支持语音输入和合成，像真人对话一样自然
+                      </p>
                     </div>
-                    <h4 className="font-semibold text-gray-900 dark:text-white mb-2">语音交互</h4>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      支持语音输入和合成，像真人对话一样自然
-                    </p>
-                  </div>
 
-                  <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                    <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 dark:bg-purple-800 rounded-full flex items-center justify-center">
-                      <Camera className="w-6 h-6 text-purple-600" />
+                    <div className="text-center p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                      <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 dark:bg-purple-800 rounded-full flex items-center justify-center">
+                        <Camera className="w-6 h-6 text-purple-600" />
+                      </div>
+                      <h4 className="font-semibold text-gray-900 dark:text-white mb-2">情绪分析</h4>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        实时分析语音和表情，提供个性化反馈建议
+                      </p>
                     </div>
-                    <h4 className="font-semibold text-gray-900 dark:text-white mb-2">情绪分析</h4>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      实时分析语音和表情，提供个性化反馈建议
-                    </p>
                   </div>
-
-
                 </div>
 
                 {/* 服务状态指示器 */}

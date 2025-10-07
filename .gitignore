@@ -130,6 +130,7 @@ temp/
 models/
 checkpoints/
 Facial-Emotion-Detection-FER-RAFDB-AffectNet-BEIT-Large/
+facial_emotions_image_detection/
 openai-whisper-large-v3/
 GPT_weights_v2Pro/
 SoVITS_weights_v2Pro/

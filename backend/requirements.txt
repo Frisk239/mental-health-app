@@ -30,6 +30,17 @@ datasets==2.15.0  # 用于加载Hugging Face数据集
 accelerate==0.24.1  # 用于模型加速
 tokenizers>=0.14.0,<0.15  # 分词器
 
+# ONNX Runtime for Paraformer STT
+onnxruntime==1.16.3
+
+# FunASR for Paraformer model support
+funasr==1.0.0
+
+# OpenAI Whisper for high-quality STT
+openai-whisper==20231117
+torch==2.1.0  # Whisper需要PyTorch支持
+torchaudio==2.1.0
+
 # GPT-SoVITS Dependencies
 ffmpeg-python==0.2.0
 tqdm==4.66.1

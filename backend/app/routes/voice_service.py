@@ -296,14 +296,14 @@ async def health_check():
 
 @router.get("/stt-health")
 async def stt_health_check():
-    """百度STT服务健康检查"""
+    """Paraformer STT服务健康检查"""
     try:
         if voice_service.stt_service:
             health = await voice_service.stt_service.health_check()
             return health
         else:
             return {
-                "service": "baidu_stt",
+                "service": "paraformer_stt",
                 "configured": False,
                 "error": "STT服务未初始化"
             }
