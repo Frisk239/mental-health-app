@@ -80,7 +80,7 @@ class VoiceService:
         try:
             logger.info("🚀 初始化语音服务...")
 
-            # 初始化百度STT服务
+            # 初始化语音识别服务
             await self._initialize_stt_service()
 
             # 初始化GPT-SoVITS服务
@@ -95,40 +95,23 @@ class VoiceService:
 
     async def _initialize_stt_service(self):
         """初始化语音识别服务"""
-        # 优先尝试Whisper STT服务
+        # 仅使用Whisper STT服务
         try:
-            logger.info("🎯 尝试初始化Whisper STT服务...")
+            logger.info("🎯 初始化Whisper STT服务...")
             from .whisper_stt_service import WhisperSTTService
             model_path = os.path.join(os.path.dirname(__file__), "../../../openai-whisper-large-v3")
             self.stt_service = WhisperSTTService(model_path)
             success = await self.stt_service.initialize()
             if success:
                 logger.info("✅ Whisper Large v3 STT服务初始化完成")
-                return
             else:
-                logger.warning("⚠️ Whisper STT服务初始化失败，尝试Paraformer")
-        except ImportError as e:
-            logger.warning(f"⚠️ Whisper STT服务导入失败: {e}，尝试Paraformer")
-        except Exception as e:
-            logger.warning(f"⚠️ Whisper STT服务初始化异常: {e}，尝试Paraformer")
-
-        # Whisper失败，回退到Paraformer
-        try:
-            logger.info("🔄 回退到Paraformer STT服务...")
-            from .paraformer_stt_service import ParaformerSTTService
-            model_dir = os.path.join(os.path.dirname(__file__), "../../../asr_zh")
-            self.stt_service = ParaformerSTTService(model_dir)
-            success = await self.stt_service.initialize()
-            if success:
-                logger.info("✅ Paraformer中文STT服务初始化完成")
-            else:
-                logger.warning("⚠️ Paraformer STT服务初始化失败，将使用纯文本模式")
+                logger.warning("⚠️ Whisper STT服务初始化失败，将使用纯文本模式")
                 self.stt_service = None
         except ImportError as e:
-            logger.warning(f"⚠️ Paraformer STT服务导入失败: {e}，将使用纯文本模式")
+            logger.warning(f"⚠️ Whisper STT服务导入失败: {e}，将使用纯文本模式")
             self.stt_service = None
         except Exception as e:
-            logger.warning(f"⚠️ Paraformer STT服务初始化异常: {e}，将使用纯文本模式")
+            logger.warning(f"⚠️ Whisper STT服务初始化异常: {e}，将使用纯文本模式")
             self.stt_service = None
 
     async def _initialize_tts_service(self):
@@ -164,7 +147,7 @@ class VoiceService:
         """
         try:
             if input_type == "voice" and self.stt_service:
-                # 语音输入：使用百度STT转换
+                # 语音输入：使用Whisper STT转换
                 logger.info("🎤 处理语音输入...")
                 text = await self.stt_service.speech_to_text(input_data)
                 return text, "voice"

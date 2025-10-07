@@ -1,13 +1,13 @@
 """
 面部表情识别服务
-使用OpenCV进行面部检测，BEiT模型进行表情分类
+使用OpenCV进行面部检测，ViT模型进行表情分类
 """
 
 import cv2
 import numpy as np
 from PIL import Image
 import torch
-from transformers import BeitImageProcessor, BeitForImageClassification
+from transformers import ViTImageProcessor, ViTForImageClassification
 import logging
 import os
 from typing import Dict, List, Tuple, Optional
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class EmotionRecognitionService:
     """
     面部表情识别服务类
-    整合OpenCV面部检测和BEiT深度学习模型
+    整合OpenCV面部检测和ViT深度学习模型
     """
 
     def __init__(self, model_path: str = None):
@@ -27,7 +27,7 @@ class EmotionRecognitionService:
         初始化表情识别服务
 
         Args:
-            model_path: BEiT模型路径，如果为None则使用本地模型路径
+            model_path: ViT模型路径，如果为None则使用本地模型路径
         """
         # 使用本地模型绝对路径
         if model_path is None:
@@ -37,7 +37,7 @@ class EmotionRecognitionService:
             current_dir = os.path.dirname(current_dir)  # backend/app
             current_dir = os.path.dirname(current_dir)  # backend
             project_root = os.path.dirname(current_dir)  # 项目根目录
-            self.model_path = os.path.join(project_root, "Facial-Emotion-Detection-FER-RAFDB-AffectNet-BEIT-Large")
+            self.model_path = os.path.join(project_root, "facial_emotions_image_detection", "checkpoint-15740")
         else:
             self.model_path = model_path
         self.processor = None
@@ -89,22 +89,13 @@ class EmotionRecognitionService:
 
             logger.info("✅ OpenCV面部检测器加载成功")
 
-            # 初始化BEiT模型
-            logger.info("🤖 加载BEiT表情识别模型...")
-            self.processor = BeitImageProcessor.from_pretrained(self.model_path)
-            self.model = BeitForImageClassification.from_pretrained(self.model_path)
+            # 初始化ViT模型
+            logger.info("🤖 加载ViT表情识别模型...")
+            self.processor = ViTImageProcessor.from_pretrained(self.model_path)
+            self.model = ViTForImageClassification.from_pretrained(self.model_path)
 
-            # 设置正确的标签映射（覆盖默认的LABEL_0等）
-            self.model.config.id2label = {
-                0: 'anger',
-                1: 'disgust',
-                2: 'fear',
-                3: 'happy',
-                4: 'neutral',
-                5: 'sad',
-                6: 'surprise'
-            }
-            self.model.config.label2id = {v: k for k, v in self.model.config.id2label.items()}
+            # 新模型已有正确的标签映射，无需手动设置
+            logger.info(f"📋 模型标签映射: {self.model.config.id2label}")
 
             # 移动模型到GPU（如果可用）
             if torch.cuda.is_available():
@@ -166,7 +157,7 @@ class EmotionRecognitionService:
 
     def preprocess_face(self, face_img: np.ndarray) -> Image.Image:
         """
-        预处理面部图像以适配BEiT模型
+        预处理面部图像以适配ViT模型
 
         Args:
             face_img: 面部图像 (BGR格式)
@@ -184,7 +175,7 @@ class EmotionRecognitionService:
                 y = (height - size) // 2
                 face_img = face_img[y:y+size, x:x+size]
 
-            # 调整大小为224x224 (BEiT模型输入)
+            # 调整大小为224x224 (ViT模型输入)
             face_resized = cv2.resize(face_img, (224, 224))
 
             # 转换为RGB格式
@@ -202,7 +193,7 @@ class EmotionRecognitionService:
 
     def predict_emotion(self, face_image: Image.Image) -> Dict:
         """
-        使用BEiT模型预测表情
+        使用ViT模型预测表情
 
         Args:
             face_image: 预处理后的面部图像
@@ -211,7 +202,7 @@ class EmotionRecognitionService:
             Dict: 包含情绪预测结果的字典
         """
         if not self.is_initialized or self.processor is None or self.model is None:
-            logger.error("❌ BEiT模型未初始化")
+            logger.error("❌ ViT模型未初始化")
             return self._get_default_result()
 
         try:
@@ -351,11 +342,11 @@ class EmotionRecognitionService:
             Dict: 模型信息
         """
         return {
-            "model_name": "BEiT-Large Facial Emotion Recognition",
+            "model_name": "ViT-Large Facial Emotion Recognition (checkpoint-15740)",
             "model_path": self.model_path,
             "supported_emotions": list(self.emotion_labels_chinese.values()),
             "input_size": "224x224",
-            "accuracy": "76.2%",
+            "accuracy": "预计80%+",
             "is_initialized": self.is_initialized,
             "device": "cuda" if torch.cuda.is_available() else "cpu"
         }
